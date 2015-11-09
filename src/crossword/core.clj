@@ -73,7 +73,15 @@
                        "_ _ _ _ #"
                        "_ _ _ # #"])
 
-(deftest init-patterns
+(def test-grid-all-patterns ["_ _"
+                             "_ _"])
+
+(def test-grid-no-patterns ["# # # # #"
+                            "# # # # #"])
+
+(def test-grid-no-elements [])
+
+(deftest create-init-patterns
   (is (= (create-patterns (format-grid test-grid-simple)) (set (list (->Pattern 0 2 across 3 0)
                                                                      (->Pattern 1 1 across 4 0)
                                                                      (->Pattern 2 0 across 5 0)
@@ -83,7 +91,13 @@
                                                                      (->Pattern 1 1 down 4 0)
                                                                      (->Pattern 0 2 down 5 0)
                                                                      (->Pattern 0 3 down 4 0)
-                                                                     (->Pattern 0 4 down 3 0))))))
+                                                                     (->Pattern 0 4 down 3 0)))))
+  (is (= (create-patterns (format-grid test-grid-no-patterns)) (set nil)))
+  (is (= (create-patterns (format-grid test-grid-no-elements)) (set nil)))
+  (is (= (create-patterns (format-grid test-grid-all-patterns)) (set (list (->Pattern 0 0 across 2 0)
+                                                                           (->Pattern 1 0 across 2 0)
+                                                                           (->Pattern 0 0 down 2 0)
+                                                                           (->Pattern 0 1 down 2 0))))))
 
 
 
