@@ -2,12 +2,36 @@
   (:gen-class)
   (:use clojure.test))
 
+(require '[clojure.java.io :as io])
+
 (defrecord Pattern [x y direction length freedom])
 (def across true)
 (def down false)
 
 (def patterns '())
 (def words '())
+
+;;;;;;;Util;;;;;;;
+
+(defn read-wordlist
+  []
+  (let [path (-> "knuth_words_all_lower_sorted" io/resource io/file)]
+    (with-open [rdr (io/reader path)]
+      (doall (line-seq rdr))))) ;; doall needed to realize (not lazy) all lines in buffer ))))
+
+(defn hash-wordlist
+  [wordlist]
+  (loop [remain wordlist
+         result {}]
+    (let [key (-> (count (first remain)) str keyword)]
+      (if (empty? remain)
+        result
+        (if (nil? (key result)) ;; length not added yet to map
+          (recur (next remain) (assoc result key [(first remain)]));; add new key and new word
+          (let [old-list (key result)
+                new-list (conj old-list (first remain))]
+            (recur (next remain) (assoc result key new-list))) ;; add new word to key
+          )))))
 
 ;;;;;;;Helpers;;;;;;;
 
@@ -45,6 +69,11 @@
                              (->Pattern pos idx direction len 0)))) itm))
                 patterns)))
 
+
+;;;;;;;Fill Strategies;;;;;;;
+
+
+
 ;;;;;;;Program;;;;;;;
 
 (defn pick-pattern
@@ -63,7 +92,9 @@
         mapped-p-v (map-patterns patterns-v down)]
     (set (concat mapped-p-h mapped-p-v))))
 
-;; #"_+"
+(defn -main
+  [& args]
+  (-> (read-wordlist) hash-wordlist))
 
 ;;;;;;;Test Cases;;;;;;;
 
@@ -73,6 +104,16 @@
                        "_ _ _ _ #"
                        "_ _ _ # #"])
 
+(def test-grid-medium ["# # # _ _ _ # # #"
+                       "# # _ _ _ _ _ # #"
+                       "# _ _ _ _ _ _ _ #"
+                       "_ _ _ _ # _ _ _ _"
+                       "_ _ _ # # # _ _ _"
+                       "_ _ _ _ # _ _ _ _"
+                       "# _ _ _ _ _ _ _ #"
+                       "# # _ _ _ _ _ # #"
+                       "# # # _ _ _ # # #"])
+
 (def test-grid-all-patterns ["_ _"
                              "_ _"])
 
@@ -80,6 +121,10 @@
                             "# # # # #"])
 
 (def test-grid-no-elements [])
+
+(deftest test-hash-wordlist
+  (is (= (hash-wordlist '()) {}))
+  (is (= (hash-wordlist '("a" "ab" "abc" "aa" "bb" "c")) {:1 '("a" "c"), :2 '("ab" "aa" "bb"), :3 '("abc")}))) ;; order will be respected
 
 (deftest create-init-patterns
   (is (= (create-patterns (format-grid test-grid-simple)) (set (list (->Pattern 0 2 across 3 0)
@@ -98,6 +143,7 @@
                                                                            (->Pattern 1 0 across 2 0)
                                                                            (->Pattern 0 0 down 2 0)
                                                                            (->Pattern 0 1 down 2 0))))))
+
 
 
 
