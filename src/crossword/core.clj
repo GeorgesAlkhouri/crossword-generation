@@ -16,7 +16,7 @@
 (defn read-wordlist
   "Reads the provided word list into a seq."
   []
-  (let [path (-> "knuth_words_all_lower_sorted" io/resource io/file)]
+  (let [path (-> "test" io/resource io/file)]
     (with-open [rdr (io/reader path)]
       (doall (line-seq rdr))))) ;; doall needed to realize (not lazy) all lines in buffer ))))
 
@@ -89,14 +89,22 @@
 
 ;;;;;;;Fill Strategies;;;;;;;
 
-
+(defn most-constrained
+  [regex words]
+  (count (filter #(re-matches regex %) words)))
 
 ;;;;;;;Program;;;;;;;
 
-(defn pick-pattern
-  "Pick a pattern for a given filling strategy f."
-  [function patterns]
-  nil)
+(defn fill-pattern
+  "Fill a pattern for a given fill/delete strategy f."
+  [fill-strategy patterns wordlist]
+  (let [rated (map
+               (fn [p]
+                 (let [regex (re-pattern (:regex p))
+                       words (-> (str (:length p)) keyword wordlist)]
+                   (assoc p :freedom (fill-strategy regex words)))) patterns)
+        most-constrained (apply min-key #(:freedom %) rated)] ;;dirty! change it, so that you can abstract from most-constraint to any pick strat.
+    most-constrained))
 
 (defn create-patterns
   "Determines all patterns from a fresh grid. Only execudes one time after start."
@@ -167,11 +175,20 @@
                                                                            (->Pattern 0 1 down 2 0 "[a-z][a-z]"))))))
 
 (deftest test-pattern->regex
-  (is (= (str (pattern->regex (->Pattern 0 2 across 3 0 #"") (format-grid test-grid-simple))) (str  #"[a-z][a-z][a-z]")))
-  (is (= (str (pattern->regex (->Pattern 0 0 down 2 0 #"") (format-grid test-grid-all-patterns))) (str #"[a-z][a-z]")))
-  (is (= (str (pattern->regex (->Pattern 0 1 across 3 0 #"") (format-grid test-grid-letters))) (str #"ap[a-z]"))))
+  (is (= (str (pattern->regex (->Pattern 0 2 across 3 0 "") (format-grid test-grid-simple))) (str  #"[a-z][a-z][a-z]")))
+  (is (= (str (pattern->regex (->Pattern 0 0 down 2 0 "") (format-grid test-grid-all-patterns))) (str #"[a-z][a-z]")))
+  (is (= (str (pattern->regex (->Pattern 0 1 across 3 0 "") (format-grid test-grid-letters))) (str #"ap[a-z]"))))
 
+(deftest test-most-constrained ;; {:2 '("at" "on") :3 ("the" "cat" "dog")}
+  (is (= (most-constrained #"[a-z][a-z][a-z]" '("the" "cat" "dog")) 3))
+  (is (= (most-constrained #"[a-z]o[a-z]" '("the" "cow" "dog")) 2))
+  (is (= (most-constrained #"fo[a-z]" '("the" "cow" "dog")) 0)))
 
-
-
+(deftest test-fill-pattern
+  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]")
+                                              (->Pattern 0 2 across 3 0 "[a-z]o[a-z]")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 2 "[a-z]o[a-z]")))
+  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]")
+                                              (->Pattern 0 2 across 3 0 "[a-z]ot")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 0 "[a-z]ot")))
+  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]")
+                                              (->Pattern 0 2 across 3 0 "[a-z]o[a-z]")) {:3 '("cot" "dog" "cow")}) (->Pattern 0 2 across 3 3 "[a-z]o[a-z]"))))
 
