@@ -15,6 +15,10 @@
                        "_ _ _ _ #"
                        "_ _ _ # #"])
 
+(def test-grid-easy ["_ _ _"
+                     "_ _ _"
+                     "_ _ _"])
+
 ;;;;;;;Util
 
 (defn read-wordlist
@@ -198,13 +202,18 @@
     matching-words))
 
 (defn determine-best-word
+  "Determines affected patterns and instantiates each word into patterns
+  to calculate and build product of each new freedom values.
+  Uses highest freedom value."
   [patterns pattern best-words wordlist]
-  (map #(let [p' (assoc pattern :regex %)
-              affected-patterns (get-affected-patterns patterns p')
-              updated-patterns (update-regex p' affected-patterns)
-              p'' (update-freedom most-constrained updated-patterns wordlist)
-              ]
-          p'') best-words))
+  (let [affected-patterns (get-affected-patterns patterns pattern)
+        freedom-prdouct  (map #(let [p' (assoc pattern :regex %)
+                                     updated-patterns (update-regex p' affected-patterns)
+                                     p'' (update-freedom most-constrained updated-patterns wordlist);; dirty! 
+                                     freedom (reduce * (map :freedom p''))]
+                                 {:p p'' :w % :f freedom}) best-words)
+        max-freedom-product (apply max-key (fn [m] (:f m)) freedom-prdouct)]
+    (:w max-freedom-product)))
 
 ;; 1. Insert word w
 ;; 2. Recalculate possibilites of inserting a word for each affected crossworing for w and build PRODUCT
@@ -220,8 +229,8 @@
 
 (defn -main
   [& args]
-  (let [wordlist (-> (read-wordlist) hash-wordlist)
-        grid (format-grid test-grid-simple)
+  (let [wordlist {:2 '("an") :3 '("dad" "and" "dup" "too" "fog" "dog")} ;;(-> (read-wordlist) hash-wordlist)
+        grid (format-grid test-grid-easy)
         patterns (create-patterns grid)]
     (loop [p patterns]
       (if (empty? p)
@@ -229,8 +238,11 @@
         (let [next-pattern (fill-pattern most-constrained p wordlist)
               possible-words (pick-words nil next-pattern wordlist) ;; FIXME: add different pick strategies
               next-word (determine-best-word patterns next-pattern possible-words wordlist)] ;; TODO 
+          (println next-pattern)
+          (println possible-words)
           (println next-word)
-          (recur (remove #(pattern-equal? next-pattern %) p)))))))
+          ;;(recur (remove #(pattern-equal? next-pattern %) p))
+          )))))
 
 ;;;;;;;Test Cases;;;;;;;
 
@@ -333,3 +345,15 @@
          (list (->Pattern 0 1 across 4 0 "[a-z]d[a-z][a-z]")
                (->Pattern 1 0 across 4 0 "[a-z][a-z]o[a-z]")
                (->Pattern 2 0 across 3 0 "[a-z][a-z]g")))))
+
+;; (deftest test-determine-best-word
+;;   (is (= (determine-best-word
+;;           (list (->Pattern 0 0 down 3 6 "[a-z][a-z][a-z]")
+;;                 (->Pattern 0 1 down 3 6 "[a-z][a-z][a-z]")
+;;                 (->Pattern 0 2 down 3 6 "[a-z][a-z][a-z]")
+;;                 (->Pattern 0 0 across 3 6 "[a-z][a-z][a-z]")
+;;                 (->Pattern 1 0 across 3 6 "[a-z][a-z][a-z]")
+;;                 (->Pattern 2 0 across 3 6 "[a-z][a-z][a-z]"))
+;;           (->Pattern 2 0 across 3 0 "dog")
+;;           '("dad" "too" "fog")
+;;           {:3 '("dad" "and" "dup" "too" "fog" "dog")}) "dad")))
