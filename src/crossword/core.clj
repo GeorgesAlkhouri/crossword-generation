@@ -19,6 +19,17 @@
                      "_ _ _"
                      "_ _ _"])
 
+(def test-grid-medium ["# # # _ _ _ # # #"
+                       "# # _ _ _ _ _ # #"
+                       "# _ _ _ _ _ _ _ #"
+                       "_ _ _ _ # _ _ _ _"
+                       "_ _ _ # # # _ _ _"
+                       "_ _ _ _ # _ _ _ _"
+                       "# _ _ _ _ _ _ _ #"
+                       "# # _ _ _ _ _ # #"
+                       "# # # _ _ _ # # #"])
+
+
 ;;;;;;;Util
 
 (defn read-wordlist
@@ -160,6 +171,29 @@
             ;;(println updated-regex)
             (assoc % :regex (clojure.string/replace updated-regex #"\*" "[a-z]"))) affected-patterns)))
 
+(defn pattern-equal?
+  "Compares patterns without considering regex and freedom."
+  [a b]
+  (and (= (:x a) (:x b))
+       (= (:y a) (:y b))
+       (= (:direction a) (:direction b))
+       (= (:length a) (:length b))))
+
+(defn pattern-replace
+  [patterns replace]
+   (map #(if (pattern-equal? replace %)
+           replace
+           %) patterns))
+
+(defn update-patterns
+  [patterns replacements]
+  (loop [p patterns
+         r replacements]
+    (if (empty? r)
+      p
+      (recur (pattern-replace p (first r))
+             (next r)))))
+
 ;;;;;;;Fill Strategies;;;;;;;
 
 (defn most-constrained
@@ -202,59 +236,71 @@
     matching-words))
 
 (defn determine-best-word
-  "Determines affected patterns and instantiates each word into patterns
+  "Instantiates each word into patterns
   to calculate and build product of each new freedom values.
   Uses highest freedom value."
-  [patterns pattern best-words wordlist]
-  (let [affected-patterns (get-affected-patterns patterns pattern)
-        freedom-prdouct  (map #(let [p' (assoc pattern :regex %)
+  [affected-patterns pattern best-words wordlist]
+  (let [freedom-prdouct  (map #(let [p' (assoc pattern :regex %)
                                      updated-patterns (update-regex p' affected-patterns)
                                      p'' (update-freedom most-constrained updated-patterns wordlist);; dirty! 
                                      freedom (reduce * (map :freedom p''))]
+                                 ;; (println "NEW: " p')
+                                 ;; (println updated-patterns)
+                                 ;; (println p'')
+                                 ;; (println freedom)
                                  {:p p'' :w % :f freedom}) best-words)
-        max-freedom-product (apply max-key (fn [m] (:f m)) freedom-prdouct)]
-    (:w max-freedom-product)))
+        ;;max-freedom-product (apply max-key (fn [m] (:f m)) freedom-prdouct)
+        ]
+    ;;(:w max-freedom-product)
+    ;;max-freedom-product
+    ;;(println "FREEDOM: " freedom-prdouct)
+    (if (empty? freedom-prdouct)
+      '()
+      (apply max-key (fn [m] (:f m)) freedom-prdouct))))
 
 ;; 1. Insert word w
 ;; 2. Recalculate possibilites of inserting a word for each affected crossworing for w and build PRODUCT
 ;; 3. Use the word that maximizes this PRODUCT
 
-(defn pattern-equal?
-  "Compares patterns without considering regex and freedom."
-  [a b]
-  (and (= (:x a) (:x b))
-       (= (:y a) (:y b))
-       (= (:direction a) (:direction b))
-       (= (:length a) (:length b))))
+
+(defn solve
+  [patterns wordlist]
+  (loop [s #{}
+         p patterns
+         w wordlist]
+    (if (empty? p)
+      s
+      (let [next-pattern (fill-pattern most-constrained p w)
+            possible-words (pick-words nil next-pattern w) ;; FIXME: add different pick strategies
+            affected-patterns (get-affected-patterns p next-pattern)
+            best-word-and-updated-patterns (determine-best-word affected-patterns next-pattern possible-words w)
+            best-word (:w best-word-and-updated-patterns)
+            best-patterns (:p best-word-and-updated-patterns)
+            updated-patterns (update-patterns p best-patterns)] 
+        ;;(println next-pattern)
+        ;;(println possible-words)
+        ;; (println w)
+        ;;(println (pattern-replace p best-patterns))
+        ;;(println next-pattern)
+        ;;(println best-word)
+        ;;(println p)
+        ;;(println updated-patterns)
+
+        (if (empty? best-word-and-updated-patterns)
+          "Nope"
+          (recur
+           (cons next-pattern s)
+           (remove #(pattern-equal? next-pattern %) updated-patterns)
+           (assoc w (-> (count best-word) str keyword) (remove #(= best-word %) (words-with-length (count best-word) w)))))))))
 
 (defn -main
   [& args]
-  (let [wordlist {:2 '("an") :3 '("dad" "and" "dup" "too" "fog" "dog")} ;;(-> (read-wordlist) hash-wordlist)
-        grid (format-grid test-grid-easy)
+  (let [wordlist (-> (read-wordlist) hash-wordlist) ;;{:2 '("an") :3 '("dad" "and" "dup" "too" "fog" "dog")} ;;(-> (read-wordlist) hash-wordlist)
+        grid (format-grid test-grid-medium)
         patterns (create-patterns grid)]
-    (loop [p patterns]
-      (if (empty? p)
-        "Done"
-        (let [next-pattern (fill-pattern most-constrained p wordlist)
-              possible-words (pick-words nil next-pattern wordlist) ;; FIXME: add different pick strategies
-              next-word (determine-best-word patterns next-pattern possible-words wordlist)] ;; TODO 
-          (println next-pattern)
-          (println possible-words)
-          (println next-word)
-          ;;(recur (remove #(pattern-equal? next-pattern %) p))
-          )))))
+    (solve patterns wordlist)))
 
 ;;;;;;;Test Cases;;;;;;;
-
-(def test-grid-medium ["# # # _ _ _ # # #"
-                       "# # _ _ _ _ _ # #"
-                       "# _ _ _ _ _ _ _ #"
-                       "_ _ _ _ # _ _ _ _"
-                       "_ _ _ # # # _ _ _"
-                       "_ _ _ _ # _ _ _ _"
-                       "# _ _ _ _ _ _ _ #"
-                       "# # _ _ _ _ _ # #"
-                       "# # # _ _ _ # # #"])
 
 (def test-grid-all-patterns ["_ _"
                              "_ _"])
