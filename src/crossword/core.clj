@@ -1,10 +1,12 @@
 (ns crossword.core
   (:gen-class)
   (:use clojure.test))
+(require 'clojure.tools.trace)
+
 
 (require '[clojure.java.io :as io])
 
-(defrecord Pattern [x y direction length freedom regex])
+(defrecord Pattern [x y direction length freedom regex word])
 
 (def across true)
 (def down false)
@@ -15,7 +17,7 @@
                        "_ _ _ _ #"
                        "_ _ _ # #"])
 
-(def test-grid-easy ["_ _ _"
+(def test-grid-easy ["_ _ #"
                      "_ _ _"
                      "_ _ _"])
 
@@ -28,6 +30,20 @@
                        "# _ _ _ _ _ _ _ #"
                        "# # _ _ _ _ _ # #"
                        "# # # _ _ _ # # #"])
+
+(def test-grid-hard ["_ _ _ _ # _ _ _ # _ _ _ _"
+                     "_ _ _ _ # _ _ _ # _ _ _ _"
+                     "_ _ _ _ # _ _ _ # _ _ _ _"
+                     "_ _ _ _ _ _ # _ _ _ _ _ _"
+                     "# # # _ _ _ # _ _ _ # # #"
+                     "_ _ _ _ _ # # # _ _ _ _ _"
+                     "_ _ _ # # # # # # # _ _ _"
+                     "_ _ _ _ _ # # # _ _ _ _ _"
+                     "# # # _ _ _ # _ _ _ # # #"
+                     "_ _ _ _ _ _ # _ _ _ _ _ _"
+                     "_ _ _ _ # _ _ _ # _ _ _ _"
+                     "_ _ _ _ # _ _ _ # _ _ _ _"
+                     "_ _ _ _ # _ _ _ # _ _ _ _"])
 
 
 ;;;;;;;Util
@@ -86,8 +102,8 @@
                          (let [pos (first p)
                                len (count (second p))]
                            (if (= direction across)
-                             (->Pattern idx pos direction len 0 "")
-                             (->Pattern pos idx direction len 0 "")))) itm))
+                             (->Pattern idx pos direction len 0 "" "")
+                             (->Pattern pos idx direction len 0 "" "")))) itm))
                 patterns)))
 
 (defn pattern->regex
@@ -194,6 +210,21 @@
       (recur (pattern-replace p (first r))
              (next r)))))
 
+(defn patterns-into-grid
+  [patterns grid]
+  (let [cols (get-columns grid)
+        rows grid]
+    (map #(let [coll (if (= (:direction %) across) rows cols)
+                el (if (= (:direction %) across) (:x %) (:y %))
+                pos (if (= (:direction %) across)(:y %) (:x %))
+                regex (clojure.string/replace (:regex %)  #"\[a\-z\]" "*")]
+            (map-indexed (fn [i c]
+                           (when (>= i (- (count coll) (:length %)))
+                             (let [c' (nth regex i)]
+                               (if (re-matches #"[a-z]" c')
+                                 (replace-string (nth coll el) c' )
+                                 c)))) (nth coll el))) patterns)))
+
 ;;;;;;;Fill Strategies;;;;;;;
 
 (defn most-constrained
@@ -240,65 +271,56 @@
   to calculate and build product of each new freedom values.
   Uses highest freedom value."
   [affected-patterns pattern best-words wordlist]
-  (let [freedom-prdouct  (map #(let [p' (assoc pattern :regex %)
-                                     updated-patterns (update-regex p' affected-patterns)
-                                     p'' (update-freedom most-constrained updated-patterns wordlist);; dirty! 
-                                     freedom (reduce * (map :freedom p''))]
-                                 ;; (println "NEW: " p')
-                                 ;; (println updated-patterns)
-                                 ;; (println p'')
-                                 ;; (println freedom)
-                                 {:p p'' :w % :f freedom}) best-words)
-        ;;max-freedom-product (apply max-key (fn [m] (:f m)) freedom-prdouct)
-        ]
-    ;;(:w max-freedom-product)
-    ;;max-freedom-product
-    ;;(println "FREEDOM: " freedom-prdouct)
-    (if (empty? freedom-prdouct)
-      '()
-      (apply max-key (fn [m] (:f m)) freedom-prdouct))))
+  (if (empty? best-words)
+    '()
+    (let [freedom-product  (map #(let [p' (assoc pattern :regex %)
+                                            updated-patterns (update-regex p' affected-patterns)
+                                            p'' (update-freedom most-constrained updated-patterns wordlist) ;; dirty! 
+                                            freedom (reduce * (map :freedom p''))]
+                                        {:p p'' :w % :f freedom}) best-words)]
+      (reverse (sort-by :f  freedom-product))  ;; (apply max-key (fn [m] (:f m)) freedom-prdouct)
+      )))
 
 ;; 1. Insert word w
 ;; 2. Recalculate possibilites of inserting a word for each affected crossworing for w and build PRODUCT
 ;; 3. Use the word that maximizes this PRODUCT
 
-
 (defn solve
-  [patterns wordlist]
-  (loop [s #{}
-         p patterns
-         w wordlist]
-    (if (empty? p)
-      s
-      (let [next-pattern (fill-pattern most-constrained p w)
-            possible-words (pick-words nil next-pattern w) ;; FIXME: add different pick strategies
-            affected-patterns (get-affected-patterns p next-pattern)
-            best-word-and-updated-patterns (determine-best-word affected-patterns next-pattern possible-words w)
-            best-word (:w best-word-and-updated-patterns)
-            best-patterns (:p best-word-and-updated-patterns)
-            updated-patterns (update-patterns p best-patterns)] 
-        ;;(println next-pattern)
-        ;;(println possible-words)
-        ;; (println w)
-        ;;(println (pattern-replace p best-patterns))
-        ;;(println next-pattern)
-        ;;(println best-word)
-        ;;(println p)
-        ;;(println updated-patterns)
-
-        (if (empty? best-word-and-updated-patterns)
-          "Nope"
-          (recur
-           (cons next-pattern s)
-           (remove #(pattern-equal? next-pattern %) updated-patterns)
-           (assoc w (-> (count best-word) str keyword) (remove #(= best-word %) (words-with-length (count best-word) w)))))))))
+  [patterns wordlist solved]
+  (if (empty? patterns)
+    (let []
+      (println solved)
+      true)
+    (let [next-pattern (fill-pattern most-constrained patterns wordlist) ;; 1. Delete tuple from list with lowest freedo,
+          affected-patterns (get-affected-patterns patterns next-pattern)
+          possible-words (pick-words nil next-pattern wordlist) ;; 2. Instantiate pattern to grid
+          best-w-p (determine-best-word affected-patterns next-pattern possible-words wordlist)] ;; 3.-4. Propagate instantiation to affected patterns and check for arc-consistent
+      (if (empty? best-w-p)
+        false
+        (loop [rest best-w-p]          
+          (let [instance (-> rest first)]
+            (when (not= 0 (:f instance))
+              (let [w (:w instance)
+                    ps (:p instance)
+                    u (update-patterns patterns ps)]
+                ;;(println instance)
+                ;;(println (type instance))
+                (if (solve
+                     (remove #(pattern-equal? next-pattern %) u)
+                     (assoc wordlist
+                       (-> (count w) str keyword)
+                       (remove #(= w %) (words-with-length (count w) wordlist)))
+                     (cons (assoc next-pattern :word w) solved))
+                  true
+                  (when (-> (next rest) empty? not)
+                    (recur (next rest))))))))))))
 
 (defn -main
   [& args]
   (let [wordlist (-> (read-wordlist) hash-wordlist) ;;{:2 '("an") :3 '("dad" "and" "dup" "too" "fog" "dog")} ;;(-> (read-wordlist) hash-wordlist)
-        grid (format-grid test-grid-medium)
+        grid (format-grid test-grid-hard)
         patterns (create-patterns grid)]
-    (solve patterns wordlist)))
+    (solve patterns wordlist #{})))
 
 ;;;;;;;Test Cases;;;;;;;
 
@@ -317,27 +339,27 @@
   (is (= (hash-wordlist '("a" "ab" "abc" "aa" "bb" "c")) {:1 '("a" "c"), :2 '("ab" "aa" "bb"), :3 '("abc")}))) ;; order will be respected
 
 (deftest create-init-patterns
-  (is (= (create-patterns (format-grid test-grid-simple)) (set (list (->Pattern 0 2 across 3 0 "[a-z][a-z][a-z]")
-                                                                     (->Pattern 1 1 across 4 0 "[a-z][a-z][a-z][a-z]")
-                                                                     (->Pattern 2 0 across 5 0 "[a-z][a-z][a-z][a-z][a-z]")
-                                                                     (->Pattern 3 0 across 4 0 "[a-z][a-z][a-z][a-z]")
-                                                                     (->Pattern 4 0 across 3 0 "[a-z][a-z][a-z]")
-                                                                     (->Pattern 2 0 down 3 0 "[a-z][a-z][a-z]")
-                                                                     (->Pattern 1 1 down 4 0 "[a-z][a-z][a-z][a-z]")
-                                                                     (->Pattern 0 2 down 5 0 "[a-z][a-z][a-z][a-z][a-z]")
-                                                                     (->Pattern 0 3 down 4 0 "[a-z][a-z][a-z][a-z]")
-                                                                     (->Pattern 0 4 down 3 0 "[a-z][a-z][a-z]")))))
+  (is (= (create-patterns (format-grid test-grid-simple)) (set (list (->Pattern 0 2 across 3 0 "[a-z][a-z][a-z]" "")
+                                                                     (->Pattern 1 1 across 4 0 "[a-z][a-z][a-z][a-z]" "")
+                                                                     (->Pattern 2 0 across 5 0 "[a-z][a-z][a-z][a-z][a-z]" "")
+                                                                     (->Pattern 3 0 across 4 0 "[a-z][a-z][a-z][a-z]" "")
+                                                                     (->Pattern 4 0 across 3 0 "[a-z][a-z][a-z]" "")
+                                                                     (->Pattern 2 0 down 3 0 "[a-z][a-z][a-z]" "")
+                                                                     (->Pattern 1 1 down 4 0 "[a-z][a-z][a-z][a-z]" "")
+                                                                     (->Pattern 0 2 down 5 0 "[a-z][a-z][a-z][a-z][a-z]" "")
+                                                                     (->Pattern 0 3 down 4 0 "[a-z][a-z][a-z][a-z]" "")
+                                                                     (->Pattern 0 4 down 3 0 "[a-z][a-z][a-z]" "")))))
   (is (= (create-patterns (format-grid test-grid-no-patterns)) (set nil)))
   (is (= (create-patterns (format-grid test-grid-no-elements)) (set nil)))
-  (is (= (create-patterns (format-grid test-grid-all-patterns)) (set (list (->Pattern 0 0 across 2 0 "[a-z][a-z]")
-                                                                           (->Pattern 1 0 across 2 0 "[a-z][a-z]")
-                                                                           (->Pattern 0 0 down 2 0 "[a-z][a-z]")
-                                                                           (->Pattern 0 1 down 2 0 "[a-z][a-z]"))))))
+  (is (= (create-patterns (format-grid test-grid-all-patterns)) (set (list (->Pattern 0 0 across 2 0 "[a-z][a-z]" "")
+                                                                           (->Pattern 1 0 across 2 0 "[a-z][a-z]" "")
+                                                                           (->Pattern 0 0 down 2 0 "[a-z][a-z]" "")
+                                                                           (->Pattern 0 1 down 2 0 "[a-z][a-z]" ""))))))
 
 (deftest test-pattern->regex
-  (is (= (str (pattern->regex (->Pattern 0 2 across 3 0 "") (format-grid test-grid-simple))) (str  #"[a-z][a-z][a-z]")))
-  (is (= (str (pattern->regex (->Pattern 0 0 down 2 0 "") (format-grid test-grid-all-patterns))) (str #"[a-z][a-z]")))
-  (is (= (str (pattern->regex (->Pattern 0 1 across 3 0 "") (format-grid test-grid-letters))) (str #"ap[a-z]"))))
+  (is (= (str (pattern->regex (->Pattern 0 2 across 3 0 "" "") (format-grid test-grid-simple))) (str  #"[a-z][a-z][a-z]")))
+  (is (= (str (pattern->regex (->Pattern 0 0 down 2 0 "" "") (format-grid test-grid-all-patterns))) (str #"[a-z][a-z]")))
+  (is (= (str (pattern->regex (->Pattern 0 1 across 3 0 "" "") (format-grid test-grid-letters))) (str #"ap[a-z]"))))
 
 (deftest test-most-constrained ;; {:2 '("at" "on") :3 ("the" "cat" "dog")}
   (is (= (most-constrained #"[a-z][a-z][a-z]" '("the" "cat" "dog")) 3))
@@ -345,16 +367,18 @@
   (is (= (most-constrained #"fo[a-z]" '("the" "cow" "dog")) 0)))
 
 (deftest test-fill-pattern
-  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]")
-                                              (->Pattern 0 2 across 3 0 "[a-z]o[a-z]")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 2 "[a-z]o[a-z]")))
-  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]")
-                                              (->Pattern 0 2 across 3 0 "[a-z]ot")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 0 "[a-z]ot")))
-  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]")
-                                              (->Pattern 0 2 across 3 0 "[a-z]o[a-z]")) {:3 '("cot" "dog" "cow")}) (->Pattern 0 2 across 3 3 "[a-z]o[a-z]"))))
+  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
+                                              (->Pattern 0 2 across 3 0 "[a-z]o[a-z]" "")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 2 "[a-z]o[a-z]" "")))
+  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
+                                              (->Pattern 0 2 across 3 0 "[a-z]ot" "")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 0 "[a-z]ot" "")))
+  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
+                                              (->Pattern 0 2 across 3 0 "[a-z]o[a-z]" "")) {:3 '("cot" "dog" "cow")}) (->Pattern 0 2 across 3 3 "[a-z]o[a-z]" ""))))
 
 (deftest test-pick-word
-  (is (= (pick-words nil (->Pattern 0 0 across 5 0 "[a-z][a-z]a[a-z]t") {:1 '("a" "b") :5 '("quart" "cluby" "testi" "start")})
-         '("quart" "start")))) ;; first-n
+  (is (= (pick-words nil (->Pattern 0 0 across 5 0 "[a-z][a-z]a[a-z]t" "") {:1 '("a" "b") :5 '("quart" "cluby" "testi" "start")})
+         '("quart" "start")))
+  (is (= (pick-words nil (->Pattern 0 0 across 3 0 "[a-z]at" "") {:3 '("dog" "ape" "cot")})
+         '()))) ;; first-n
 
 (def test-affected-pattern-grid-across ["_ _ # _"
                                         "_ _ _ _"])
@@ -365,32 +389,40 @@
                                       "_ _ _ _"])
 
 (deftest test-get-affected-patterns
-  (is (= (get-affected-patterns (create-patterns (format-grid test-affected-pattern-grid-across)) (->Pattern 0 0 across 2 0 ""))
-         (list (->Pattern 0 0 down 2 0 "[a-z][a-z]")
-               (->Pattern 0 1 down 2 0 "[a-z][a-z]") ))
-      (= (get-affected-patterns (create-patterns (format-grid test-affected-pattern-grid-down)) (->Pattern 0 1 down 2 0 ""))
-         (list (->Pattern 0 0 across 4 0 "[a-z][a-z][a-z][a-z]")
-               (->Pattern 1 0 across 4 0 "[a-z][a-z][a-z][a-z]")))))
+  (is (= (get-affected-patterns (create-patterns (format-grid test-affected-pattern-grid-across)) (->Pattern 0 0 across 2 0 "" ""))
+         (list (->Pattern 0 0 down 2 0 "[a-z][a-z]" "")
+               (->Pattern 0 1 down 2 0 "[a-z][a-z]" "") ))
+      (= (get-affected-patterns (create-patterns (format-grid test-affected-pattern-grid-down)) (->Pattern 0 1 down 2 0 "" ""))
+         (list (->Pattern 0 0 across 4 0 "[a-z][a-z][a-z][a-z]" "")
+               (->Pattern 1 0 across 4 0 "[a-z][a-z][a-z][a-z]" "")))))
 
 (deftest test-update-regex
-  (is (= (update-regex (->Pattern 0 0 across 3 0 "cat") (list (->Pattern 0 0 down 3 0 "[a-z][a-z][a-z]")
-                                                              (->Pattern 0 1 down 3 0 "[a-z][a-z][a-z]")
-                                                              (->Pattern 0 2 down 3 0 "[a-z][a-z][a-z]")))
-         (list (->Pattern 0 0 down 3 0 "c[a-z][a-z]")
-               (->Pattern 0 1 down 3 0 "a[a-z][a-z]")
-               (->Pattern 0 2 down 3 0 "t[a-z][a-z]"))))
-  (is (= (update-regex (->Pattern 0 1 down 3 0 "dog") (list (->Pattern 0 0 across 3 0 "[a-z][a-z][a-z]")
-                                                            (->Pattern 1 0 across 3 0 "[a-z][a-z][a-z]")
-                                                            (->Pattern 2 0 across 3 0 "[a-z][a-z][a-z]")))
-         (list (->Pattern 0 0 across 3 0 "[a-z]d[a-z]")
-               (->Pattern 1 0 across 3 0 "[a-z]o[a-z]")
-               (->Pattern 2 0 across 3 0 "[a-z]g[a-z]"))))
-  (is (= (update-regex (->Pattern 0 2 down 3 0 "dog") (list (->Pattern 0 1 across 4 0 "[a-z][a-z][a-z][a-z]")
-                                                            (->Pattern 1 0 across 4 0 "[a-z][a-z][a-z][a-z]")
-                                                            (->Pattern 2 0 across 3 0 "[a-z][a-z][a-z]")))
-         (list (->Pattern 0 1 across 4 0 "[a-z]d[a-z][a-z]")
-               (->Pattern 1 0 across 4 0 "[a-z][a-z]o[a-z]")
-               (->Pattern 2 0 across 3 0 "[a-z][a-z]g")))))
+  (is (= (update-regex (->Pattern 0 0 across 3 0 "cat" "") (list (->Pattern 0 0 down 3 0 "[a-z][a-z][a-z]" "")
+                                                              (->Pattern 0 1 down 3 0 "[a-z][a-z][a-z]" "")
+                                                              (->Pattern 0 2 down 3 0 "[a-z][a-z][a-z]" "")))
+         (list (->Pattern 0 0 down 3 0 "c[a-z][a-z]" "")
+               (->Pattern 0 1 down 3 0 "a[a-z][a-z]" "")
+               (->Pattern 0 2 down 3 0 "t[a-z][a-z]" ""))))
+  (is (= (update-regex (->Pattern 0 1 down 3 0 "dog" "") (list (->Pattern 0 0 across 3 0 "[a-z][a-z][a-z]" "")
+                                                            (->Pattern 1 0 across 3 0 "[a-z][a-z][a-z]" "")
+                                                            (->Pattern 2 0 across 3 0 "[a-z][a-z][a-z]" "")))
+         (list (->Pattern 0 0 across 3 0 "[a-z]d[a-z]" "")
+               (->Pattern 1 0 across 3 0 "[a-z]o[a-z]" "")
+               (->Pattern 2 0 across 3 0 "[a-z]g[a-z]" ""))))
+  (is (= (update-regex (->Pattern 0 2 down 3 0 "dog" "") (list (->Pattern 0 1 across 4 0 "[a-z][a-z][a-z][a-z]" "")
+                                                            (->Pattern 1 0 across 4 0 "[a-z][a-z][a-z][a-z]" "")
+                                                            (->Pattern 2 0 across 3 0 "[a-z][a-z][a-z]" "")))
+         (list (->Pattern 0 1 across 4 0 "[a-z]d[a-z][a-z]" "")
+               (->Pattern 1 0 across 4 0 "[a-z][a-z]o[a-z]" "")
+               (->Pattern 2 0 across 3 0 "[a-z][a-z]g" "")))))
+
+;; (deftest test-patterns-into-grid
+;;   (is (= (patterns-into-grid (list (->Pattern 0 0 across 2 1 "a[a-z]" "")
+;;                                    (->Pattern 1 0 across 2 0 "n[a-z]" "")
+;;                                    (->Pattern 0 0 down 2 0 "[a-z][a-z]" "")
+;;                                    (->Pattern 0 1 down 2 0 "dn" "")) ["##"
+;;                                                                       "##"]) ["a d"
+;;                                                                               "n n"])))
 
 ;; (deftest test-determine-best-word
 ;;   (is (= (determine-best-word
