@@ -164,13 +164,6 @@
   ;;(println s c i)
   (str (subs s 0 i) c (subs s (+ i 1))))
 
-;; (defn replace-string
-;;   ([target new offset] (replace-string
-;;                         target new offset (count new)))
-;;   ([target new offset length]
-;;    (println target new offset length)
-;;    (str (subs target 0 offset) new (subs target (+ offset length)))) )
-
 (defn update-regex
   [pattern affected-patterns]
   (let [temp-regex-pattern (clojure.string/replace (:regex pattern)  #"\[a\-z\]" "*") ]
@@ -212,18 +205,23 @@
 
 (defn patterns-into-grid
   [patterns grid]
-  (let [cols (get-columns grid)
-        rows grid]
-    (map #(let [coll (if (= (:direction %) across) rows cols)
-                el (if (= (:direction %) across) (:x %) (:y %))
-                pos (if (= (:direction %) across)(:y %) (:x %))
-                regex (clojure.string/replace (:regex %)  #"\[a\-z\]" "*")]
-            (map-indexed (fn [i c]
-                           (when (>= i (- (count coll) (:length %)))
-                             (let [c' (nth regex i)]
-                               (if (re-matches #"[a-z]" c')
-                                 (replace-string (nth coll el) c' )
-                                 c)))) (nth coll el))) patterns)))
+  (let [removed (remove #(= down (:direction %)) patterns)
+        sorted (sort-by :x removed)
+        parted (partition-by :x sorted)]
+    (map #(let [res (reduce (fn [a b]
+                              (let [pos (:y b)
+                                    s (str (subs a 0 pos) (:word b) (subs a (+ pos (:length b))))]
+                                s)) (nth grid (:x (first %)))  %)]
+            (apply str (interpose " " res))) parted)))
+
+
+;; let [el (:x %)                   
+;;                 item (nth grid el)]
+;;             (reduce (fn [a b]
+
+  ;; pos (:y %)
+ ;; s (str (subs item 0 pos) (:word %) (subs item (+ pos (:length %))))]
+ ;;               (apply str (interpose " " s))
 
 ;;;;;;;Fill Strategies;;;;;;;
 
@@ -288,39 +286,37 @@
 (defn solve
   [patterns wordlist solved]
   (if (empty? patterns)
-    (let []
-      (println solved)
-      true)
+    [true solved]
     (let [next-pattern (fill-pattern most-constrained patterns wordlist) ;; 1. Delete tuple from list with lowest freedo,
           affected-patterns (get-affected-patterns patterns next-pattern)
           possible-words (pick-words nil next-pattern wordlist) ;; 2. Instantiate pattern to grid
           best-w-p (determine-best-word affected-patterns next-pattern possible-words wordlist)] ;; 3.-4. Propagate instantiation to affected patterns and check for arc-consistent
       (if (empty? best-w-p)
-        false
+        [false]
         (loop [rest best-w-p]          
           (let [instance (-> rest first)]
             (when (not= 0 (:f instance))
               (let [w (:w instance)
                     ps (:p instance)
-                    u (update-patterns patterns ps)]
-                ;;(println instance)
-                ;;(println (type instance))
-                (if (solve
-                     (remove #(pattern-equal? next-pattern %) u)
-                     (assoc wordlist
-                       (-> (count w) str keyword)
-                       (remove #(= w %) (words-with-length (count w) wordlist)))
-                     (cons (assoc next-pattern :word w) solved))
-                  true
+                    u (update-patterns patterns ps)
+                    s (solve
+                       (remove #(pattern-equal? next-pattern %) u)
+                       (assoc wordlist
+                         (-> (count w) str keyword)
+                         (remove #(= w %) (words-with-length (count w) wordlist)))
+                       (cons (assoc next-pattern :word w) solved))]
+                (if (first s)
+                  [true (last s)]
                   (when (-> (next rest) empty? not)
                     (recur (next rest))))))))))))
 
 (defn -main
   [& args]
-  (let [wordlist (-> (read-wordlist) hash-wordlist) ;;{:2 '("an") :3 '("dad" "and" "dup" "too" "fog" "dog")} ;;(-> (read-wordlist) hash-wordlist)
-        grid (format-grid test-grid-hard)
-        patterns (create-patterns grid)]
-    (solve patterns wordlist #{})))
+  (let [wordlist (-> (read-wordlist) hash-wordlist)
+        grid (format-grid test-grid-medium)
+        patterns (create-patterns grid)
+        res (solve patterns wordlist #{})]
+      (map #(println %) (patterns-into-grid (last res) grid))))
 
 ;;;;;;;Test Cases;;;;;;;
 
@@ -416,22 +412,31 @@
                (->Pattern 1 0 across 4 0 "[a-z][a-z]o[a-z]" "")
                (->Pattern 2 0 across 3 0 "[a-z][a-z]g" "")))))
 
-;; (deftest test-patterns-into-grid
-;;   (is (= (patterns-into-grid (list (->Pattern 0 0 across 2 1 "a[a-z]" "")
-;;                                    (->Pattern 1 0 across 2 0 "n[a-z]" "")
-;;                                    (->Pattern 0 0 down 2 0 "[a-z][a-z]" "")
-;;                                    (->Pattern 0 1 down 2 0 "dn" "")) ["##"
-;;                                                                       "##"]) ["a d"
-;;                                                                               "n n"])))
+(deftest test-solve
+  (letfn [(word-legal?
+            [w dict]
+            (let [words (words-with-length (count w) dict)]
+              (some #(= w %) words)))]
+    (is (= true (let [wordlist (-> (read-wordlist) hash-wordlist)
+                      grid (format-grid test-grid-medium)
+                      patterns (create-patterns grid)
+                      res (solve patterns wordlist #{})]
+                  (if (not (first res))
+                    false
+                    (not (some false? (map #(word-legal? (:word %) wordlist) (last res))))))))))
 
-;; (deftest test-determine-best-word
-;;   (is (= (determine-best-word
-;;           (list (->Pattern 0 0 down 3 6 "[a-z][a-z][a-z]")
-;;                 (->Pattern 0 1 down 3 6 "[a-z][a-z][a-z]")
-;;                 (->Pattern 0 2 down 3 6 "[a-z][a-z][a-z]")
-;;                 (->Pattern 0 0 across 3 6 "[a-z][a-z][a-z]")
-;;                 (->Pattern 1 0 across 3 6 "[a-z][a-z][a-z]")
-;;                 (->Pattern 2 0 across 3 6 "[a-z][a-z][a-z]"))
-;;           (->Pattern 2 0 across 3 0 "dog")
-;;           '("dad" "too" "fog")
-;;           {:3 '("dad" "and" "dup" "too" "fog" "dog")}) "dad")))
+(deftest test-patterns-into-grid
+  (is (= (patterns-into-grid (list (->Pattern 0 0 across 2 1 "" "ad")
+                                   (->Pattern 1 0 across 2 0 "" "nn")
+                                   (->Pattern 0 0 down 2 0 "" "an")
+                                   (->Pattern 0 1 down 2 0 "" "dn")) ["##"
+                                                                      "##"]) ["a d"
+                                                                              "n n"]))
+  (is (= (patterns-into-grid (list (->Pattern 0 1 across 2 0 "" "ad")
+                                   (->Pattern 1 0 across 2 0 "" "nn")
+                                   (->Pattern 0 1 down 2 0 "" "an"))
+                             ["#__"
+                              "__#"]) ["# a d"
+                                       "n n #"]))
+  (is (= (patterns-into-grid (list (->Pattern 0 0 across 2 0 "" "ad")
+                                   (->Pattern 0 3 across 2 0 "" "nn")) ["__#__"]) ["a d # n n"])))
