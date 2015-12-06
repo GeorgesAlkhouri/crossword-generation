@@ -51,33 +51,39 @@
   (is (= (str (pattern->regex (->Pattern 0 1 across 3 0 "" "") (format-grid test-grid-letters))) (str #"ap[a-z]"))))
 
 (deftest test-most-constrained ;; {:2 '("at" "on") :3 ("the" "cat" "dog")}
-  (is (= (most-constrained #"[a-z][a-z][a-z]" '("the" "cat" "dog")) 3))
-  (is (= (most-constrained #"[a-z]o[a-z]" '("the" "cow" "dog")) 2))
-  (is (= (most-constrained #"fo[a-z]" '("the" "cow" "dog")) 0)))
+  (is (= (fill-strategy {:fill-strategy :most-constrained :regex #"[a-z][a-z][a-z]" :words '("the" "cat" "dog")}) 3))
+  (is (= (fill-strategy {:fill-strategy :most-constrained :regex #"[a-z]o[a-z]" :words '("the" "cat" "dog")}) 1))
+  (is (= (fill-strategy {:fill-strategy :most-constrained :regex #"fo[a-z]" :words '("the" "cat" "dog")}) 0)))
 
 (deftest test-ratio
-  (is (= (ratio "[a-z]a[a-z][a-z]" '()) 3/4))
-  (is (= (ratio "[a-z][a-z]" '()) 1))
-  (is (= (ratio "abc" '()) 0)))
+  (is (= (fill-strategy {:fill-strategy :ratio :regex #"[a-z]a[a-z][a-z]"}) 3/4))
+  (is (= (fill-strategy {:fill-strategy :ratio :regex #"[a-z][a-z]"}) 1))
+  (is (= (fill-strategy {:fill-strategy :ratio :regex #"abc"}) 0)))
 
 (deftest test-fill-pattern
-  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
-                                              (->Pattern 0 2 across 3 0 "[a-z]o[a-z]" "")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 2 "[a-z]o[a-z]" "")))
-  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
-                                              (->Pattern 0 2 across 3 0 "[a-z]ot" "")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 0 "[a-z]ot" "")))
-  (is (= (fill-pattern most-constrained (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
-                                              (->Pattern 0 2 across 3 0 "[a-z]o[a-z]" "")) {:3 '("cot" "dog" "cow")}) (->Pattern 0 2 across 3 3 "[a-z]o[a-z]" ""))))
+  (is (= (fill-pattern "most-constrained" (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
+                                                (->Pattern 0 2 across 3 0 "[a-z]o[a-z]" "")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 2 "[a-z]o[a-z]" "")))
+  (is (= (fill-pattern "most-constrained" (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
+                                                (->Pattern 0 2 across 3 0 "[a-z]ot" "")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 0 "[a-z]ot" "")))
+  (is (= (fill-pattern "most-constrained" (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
+                                                (->Pattern 0 2 across 3 0 "[a-z]o[a-z]" "")) {:3 '("cot" "dog" "cow")}) (->Pattern 0 2 across 3 3 "[a-z]o[a-z]" ""))))
 
 (deftest test-pick-word
-  (is (= (pick-words "first-n" (->Pattern 0 0 across 5 0 "[a-z][a-z]a[a-z]t" "") {:1 '("a" "b") :5 '("quart" "cluby" "testi" "start")})
+  (is (= (pick-words "first-n" (->Pattern 0 0 across 5 0 "[a-z][a-z]a[a-z]t" "") nil {:1 '("a" "b") :5 '("quart" "cluby" "testi" "start")})
          '("quart" "start")))
-  (is (= (pick-words "first-n" (->Pattern 0 0 across 3 0 "[a-z]at" "") {:3 '("dog" "cow")})
+  (is (= (pick-words "first-n" (->Pattern 0 0 across 3 0 "[a-z]at" "") nil {:3 '("dog" "cow")})
          '()))
-  (is (= (set(pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]o[a-z]" "") {:3 '("dog" "ape" "cot")}))
+  (is (= (set(pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]o[a-z]" "") nil {:3 '("dog" "ape" "cot")}))
          #{"cot" "dog"}))
-  (is (= (set(pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]at" "") {:3 '("dog" "ape" "cot")}))
-         (set nil))))
- 
+  (is (= (set(pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]at" "") nil {:3 '("dog" "ape" "cot")}))
+         (set nil)))
+  ;; (is (= (pick-words "dynamic" (->Pattern 0 0 across 2 3 "[a-z][a-z]" "") (list (->Pattern 0 0 across 2 3 "[a-z][a-z]" "")
+  ;;                                                                               (->Pattern 1 0 across 2 3 "[a-z][a-z]" "")
+  ;;                                                                               (->Pattern 0 0 down 2 3 "[a-z][a-z]" "")
+  ;;                                                                               (->Pattern 0 1 down 2 3 "[a-z][a-z]" "")) {:2 '("on" "ma" "om" "na")})
+  ;;        '()))
+  )
+
 (deftest test-get-affected-patterns
   (is (= (get-affected-patterns (create-patterns (format-grid test-affected-pattern-grid-across)) (->Pattern 0 0 across 2 0 "" ""))
          (list (->Pattern 0 0 down 2 0 "[a-z][a-z]" "")
@@ -117,10 +123,15 @@
                 false
                 (and (not (some false? (map #(word-legal? (:word %) wordlist) (first res))))
                      (= (count patterns) (count (first res)))))))]
+    (swap! result assoc :s false)
     (is (= true (solve-grid (-> test-grid-simple format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
+    (swap! result assoc :s false)
     (is (= true (solve-grid (-> test-grid-medium format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
+    (swap! result assoc :s false)
     (is (= true (solve-grid (-> test-grid-hard format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
+    (swap! result assoc :s false)
     (is (= true (solve-grid (-> test-grid-harder format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
+    (swap! result assoc :s false)
     ))
 
 (deftest test-patterns-into-grid
