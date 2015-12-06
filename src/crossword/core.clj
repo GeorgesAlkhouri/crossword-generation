@@ -161,6 +161,12 @@
   [regex words]
   (filter #(re-matches regex %) words))
 
+(defn contains-word
+  [regex words]
+  (if (some #(not (nil? %)) (map #(re-matches regex %) words))
+    true
+    false))
+
 (defn words-with-length
   [length wordlist]
   (-> (str length) keyword wordlist))
@@ -180,19 +186,12 @@
 
 (defn update-regex
   [pattern affected-patterns]
-  (let [temp-regex-pattern (clojure.string/replace (:regex pattern)  #"\[a\-z\]" "*") ]
-    (map #(let [temp-regex (clojure.string/replace (:regex %)  #"\[a\-z\]" "*")
-                updated-regex (let []
-                               ;;(println "[ " pattern " ]")
-                               ;;(println " [[" % "]]")
-                               ;;(println "p1" temp-regex-pattern "x:"  (- (:x %) (:x pattern))  "y:"  (- (:y %) (:y pattern)))
-                               ;;(println "p2" temp-regex "x:"  (- (:y pattern) (:y %)) "y: "  (- (:x pattern) (:x %)))
-                                
-                                (if (= (:direction pattern) across)
-                                  (replace-string temp-regex (str (nth temp-regex-pattern (- (:y %) (:y pattern)))) (- (:x pattern) (:x %)))
-                                  (replace-string temp-regex (str (nth temp-regex-pattern (- (:x %) (:x pattern)))) (- (:y pattern) (:y %)) )))]
-            ;;(println updated-regex)
-            (assoc % :regex (clojure.string/replace updated-regex #"\*" "[a-z]"))) affected-patterns)))
+  (let [temp-regex-pattern (string/replace (:regex pattern)  #"\[a\-z\]" "*") ]
+    (map #(let [temp-regex (string/replace (:regex %)  #"\[a\-z\]" "*")
+                updated-regex (if (= (:direction pattern) across)
+                                (replace-string temp-regex (str (nth temp-regex-pattern (- (:y %) (:y pattern)))) (- (:x pattern) (:x %)))
+                                (replace-string temp-regex (str (nth temp-regex-pattern (- (:x %) (:x pattern)))) (- (:y pattern) (:y %))))]
+            (assoc % :regex (string/replace updated-regex #"\*" "[a-z]"))) affected-patterns)))
 
 (defn pattern-equal?
   "Compares patterns without considering regex and freedom."
@@ -246,7 +245,35 @@
 
 ;;;;;;;Pick Strategies;;;;;;;
 
+;; (defn first-n
+;;   [regex words]
+;;   (take 10 (match-words regex words)))
 
+;; (defn random
+;;   [regex words]
+;;   (let [matches (match-words regex words)]
+;;     (when (not (empty? matches))
+;;       (-> (repeatedly 10 #(rand-nth matches)) distinct))))
+
+;; (defn dynamic ;; see determine-best-word
+;;   [regex words]
+;;   (let [random-words (random regex words)]
+;;     (when (not (empty? random-words))
+;;       )))
+
+(defmulti pick-strategy
+  ""
+  (fn [data] (:pick-strategy data)))
+
+(defmethod pick-strategy :first-n
+  [data]
+  (take 10 (match-words (:regex data) (:words data))))
+
+(defmethod pick-strategy :random
+  [data]
+  (let [matches (match-words (:regex data) (:words data))]
+    (when (not (empty? matches))
+      (-> (repeatedly 10 #(rand-nth matches)) distinct))))
 
 ;;;;;;;Program;;;;;;;
 
@@ -271,67 +298,138 @@
         most-constrained (apply min-key #(:freedom %) rated)] ;;dirty! change it, so that you can abstract from most-constraint to any pick strat.
     most-constrained))
 
-(defn pick-words ;;dirty! use pick strategy abstraction, now only first n strategy is used
-  "Picks possible words with a picking strategy." 
-  [pick-strategy pattern wordlist]
-  (let [words (words-with-length (:length pattern) wordlist)
-        matching-words (take 10 (match-words (re-pattern (:regex pattern)) words))]
-    matching-words))
+;; (defn pick-words
+;;   "Picks possible words with a picking strategy." 
+;;   [pick-strategy pattern wordlist]
+;;   (let [words (words-with-length (:length pattern) wordlist)
+;;         matching-words (take 10 (match-words (re-pattern (:regex pattern)) words))]
+;;     matching-words))
 
-(defn determine-best-word
-  "Instantiates each word into patterns
-  to calculate and build product of each new freedom values.
-  Uses highest freedom value."
-  [affected-patterns pattern best-words wordlist]
-  (if (empty? best-words)
-    '()
-    (let [freedom-product  (map #(let [p' (assoc pattern :regex %)
-                                            updated-patterns (update-regex p' affected-patterns)
-                                            p'' (update-freedom most-constrained updated-patterns wordlist) ;; dirty! 
-                                            freedom (reduce *' (map :freedom p''))] ;; *'
-                                        {:p p'' :w % :f freedom}) best-words)]
-      (reverse (sort-by :f  freedom-product))  ;; (apply max-key (fn [m] (:f m)) freedom-prdouct)
-      )))
+(defn pick-words
+  "Picks possible words with a picking strategy." 
+  [strategy pattern wordlist]
+  (let [words (cond
+               (= strategy "dynamic") nil
+               :else (pick-strategy {:pick-strategy (keyword strategy)
+                                     :regex (-> (:regex pattern) re-pattern)
+                                     :words (words-with-length (:length pattern) wordlist)}))]
+    words))
+
+(defn propagate-pattern
+  [fill pattern patterns word wordlist]
+  (if (nil? word)
+    nil
+    (let [affected-patterns (get-affected-patterns patterns pattern)
+          p (assoc pattern :regex word)
+          updated-patterns (update-regex p affected-patterns)
+          p' (update-freedom fill updated-patterns wordlist)]
+      {:p p' :w word})))
+
+(defn arc-consistency?
+  [fill pick patterns wordlist]
+  (if (or (empty? patterns)
+          (nil? patterns))
+    true ;; last case every pattern has been solved
+    (if (or (= fill "most-constrained")
+            (= pick "dynamic")
+            (= pick "probe"))
+      (every? #(> (:freedom %) 0) patterns)
+      (every? true? (map #(contains-word (re-pattern (:regex %)) (words-with-length (:length %) wordlist)) patterns)))))
 
 ;; 1. Insert word w
 ;; 2. Recalculate possibilites of inserting a word for each affected crossworing for w and build PRODUCT
 ;; 3. Use the word that maximizes this PRODUCT
 
+(def counter (atom 0N))
+
 (defn solve
   [patterns wordlist solved]
-  (if (empty? patterns)
-    [true solved]
-    (let [next-pattern (fill-pattern most-constrained patterns wordlist) ;; 1. Delete tuple from list with lowest freedo,
-          affected-patterns (get-affected-patterns patterns next-pattern)
-          possible-words (pick-words nil next-pattern wordlist) ;; 2. Instantiate pattern to grid
-          best-w-p (determine-best-word affected-patterns next-pattern possible-words wordlist)] ;; 3.-4. Propagate instantiation to affected patterns and check for arc-consistent
-      (if (empty? best-w-p)
-        [false]
-        (loop [rest best-w-p]          
-          (let [instance (-> rest first)]
-            (when (not= 0 (:f instance))
-              (let [w (:w instance)
-                    ps (:p instance)
-                    u (update-patterns patterns ps)
-                    s (solve
-                       (remove #(pattern-equal? next-pattern %) u)
-                       (assoc wordlist
-                         (-> (count w) str keyword)
-                         (remove #(= w %) (words-with-length (count w) wordlist)))
-                       (cons (assoc next-pattern :word w) solved))]
-                (if (first s)
-                  [true (last s)]
-                  (when (-> (next rest) empty? not)
-                    (recur (next rest))))))))))))
+  (let []
+;;    (println "pattern-count " (count patterns) "solved " (count solved))
+    (if (empty? patterns)
+      (let []
+       ;; (println "SOLVED")
+        (swap! counter inc)
+        [true solved]) ;; CHECK NEXT-PATTERN
+      (if (=  @counter 0)
+        (let [next-pattern (fill-pattern most-constrained patterns wordlist) ;; 1. Delete tuple from list with lowest freedo,
+              possible-words (pick-words "first-n" next-pattern wordlist) ;; 2. Instantiate pattern to grid
+              ] ;; 3.-4. Propagate instantiation to affected patterns and check for arc-consistent
+         ;; (println "Next: " next-pattern)
+         ;; (println "Pos-words: " possible-words)      
+          (when (not (empty? possible-words))
+            (for [word possible-words
+                  :let [solved? (if (= @counter 0)
+                                  (let [updated (propagate-pattern most-constrained next-pattern patterns word wordlist)
+                                        arc-consistent (arc-consistency? "most-constrained" "first-n" (:p updated) wordlist)]
+                                    ;;(println "Word: " (:w updated) "Arc?: " arc-consistent "up: " (:p updated))
+                                    (if arc-consistent
+                                      (let [w (:w updated)
+                                            ps (:p updated)
+                                            u (update-patterns patterns ps)]
+                                        (solve
+                                         (remove #(pattern-equal? next-pattern %) u)
+                                         (assoc wordlist
+                                           (-> (count w) str keyword)
+                                           (remove #(= w %) (words-with-length (count w) wordlist)))
+                                         (cons (assoc next-pattern :word w) solved))))))]
+                  :when (first solved?)]
+              (last solved?))))))))
+
+
+;; (defn determine-best-word
+;;   "Instantiates each word into patterns
+;;   to calculate and build product of each new freedom values.
+;;   Uses highest freedom value."
+;;   [affected-patterns pattern best-words wordlist fill-strategy]
+;;   (if (empty? best-words)
+;;     '()
+;;     (let [freedom-product  (map #(let [p' (assoc pattern :regex %)
+;;                          pdated (update-regex p' affected-patterns)
+;;                                        p'' (update-freedom fill-strategy updated-patterns wordlist) ;; dirty! 
+;;                                        freedom (reduce *' (map :freedom p''));; dynamic pick strategy
+;;                                        ]
+;;                                    {:p p'' :w % :f freedom}) best-words)]
+;;       (reverse (sort-by :f  freedom-product)))))
+
+;; (defn solve
+;;   [patterns wordlist solved]
+;;   (if (empty? patterns)
+;;     [true solved]
+;;     (let [next-pattern (fill-pattern most-constrained patterns wordlist) ;; 1. Delete tuple from list with lowest freedo,
+;;           affected-patterns (get-affected-patterns patterns next-pattern)
+;;           possible-words (pick-words "first-n" next-pattern wordlist) ;; 2. Instantiate pattern to grid
+;;           best-w-p (determine-best-word affected-patterns next-pattern possible-words wordlist most-constrained)] ;; 3.-4. Propagate instantiation to affected patterns and check for arc-consistent
+;;       (if (empty? best-w-p)
+;;         [false]
+;;         (loop [rest best-w-p]          
+;;           (let [instance (-> rest first)]
+;;             (when (not= 0 (:f instance))
+;;               (let [w (:w instance)
+;;                     ps (:p instance)
+;;                     u (update-patterns patterns ps)
+;;                     s (solve
+;;                        (remove #(pattern-equal? next-pattern %) u)
+;;                        (assoc wordlist
+;;                          (-> (count w) str keyword)
+;;                          (remove #(= w %) (words-with-length (count w) wordlist)))
+;;                        (cons (assoc next-pattern :word w) solved))]
+;;                 (if (first s)
+;;                   [true (last s)]
+;;                   (when (-> (next rest) empty? not)
+;;                     (recur (next rest))))))))))))
+
+ ;; ["_ _"
+ ;; "_ _"]
 
 (defn -main
   [& args]
   (let [wordlist (-> (read-wordlist) hash-wordlist)
-        grid (format-grid test-grid-harder)
+        grid (format-grid test-grid-hard)
         patterns (create-patterns grid)
         res (solve patterns wordlist #{})]
-    (if (first res)
-      (doseq [line (patterns-into-grid (last res) grid)]
+    (if (not (nil? res))
+      (doseq [line (patterns-into-grid (first res) grid)]
         (println line))
       (println "Not solvable."))))
 

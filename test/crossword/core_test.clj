@@ -69,10 +69,14 @@
                                               (->Pattern 0 2 across 3 0 "[a-z]o[a-z]" "")) {:3 '("cot" "dog" "cow")}) (->Pattern 0 2 across 3 3 "[a-z]o[a-z]" ""))))
 
 (deftest test-pick-word
-  (is (= (pick-words nil (->Pattern 0 0 across 5 0 "[a-z][a-z]a[a-z]t" "") {:1 '("a" "b") :5 '("quart" "cluby" "testi" "start")})
+  (is (= (pick-words "first-n" (->Pattern 0 0 across 5 0 "[a-z][a-z]a[a-z]t" "") {:1 '("a" "b") :5 '("quart" "cluby" "testi" "start")})
          '("quart" "start")))
-  (is (= (pick-words nil (->Pattern 0 0 across 3 0 "[a-z]at" "") {:3 '("dog" "ape" "cot")})
-         '()))) ;; first-n
+  (is (= (pick-words "first-n" (->Pattern 0 0 across 3 0 "[a-z]at" "") {:3 '("dog" "cow")})
+         '()))
+  (is (= (set(pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]o[a-z]" "") {:3 '("dog" "ape" "cot")}))
+         #{"cot" "dog"}))
+  (is (= (set(pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]at" "") {:3 '("dog" "ape" "cot")}))
+         (set nil))))
  
 (deftest test-get-affected-patterns
   (is (= (get-affected-patterns (create-patterns (format-grid test-affected-pattern-grid-across)) (->Pattern 0 0 across 2 0 "" ""))
@@ -109,14 +113,15 @@
               (some #(= w %) words)))
           (solve-grid [patterns wordlist]
             (let [res (solve patterns wordlist #{})]
-              (if (not (first res))
+              (if (nil? res)
                 false
-                (and (not (some false? (map #(word-legal? (:word %) wordlist) (last res))))
-                     (= (count patterns) (count (last res)))))))]
+                (and (not (some false? (map #(word-legal? (:word %) wordlist) (first res))))
+                     (= (count patterns) (count (first res)))))))]
     (is (= true (solve-grid (-> test-grid-simple format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
     (is (= true (solve-grid (-> test-grid-medium format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
     (is (= true (solve-grid (-> test-grid-hard format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
-    (is (= true (solve-grid (-> test-grid-harder format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))))
+    (is (= true (solve-grid (-> test-grid-harder format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
+    ))
 
 (deftest test-patterns-into-grid
   (is (= (patterns-into-grid (list (->Pattern 0 0 across 2 1 "" "ad")
@@ -132,7 +137,16 @@
                               "__#"]) ["# a d"
                                        "n n #"]))
   (is (= (patterns-into-grid (list (->Pattern 0 0 across 2 0 "" "ad")
-                                   (->Pattern 0 3 across 2 0 "" "nn")) ["__#__"]) ["a d # n n"]))
-  (is (= (patterns-into-grid (list (->Pattern 0 0 down 2 0 "" "ad")) ["#"
-                                                                      "#"]) ["a"
-                                                                             "d"])))
+                                   (->Pattern 0 3 across 2 0 "" "nn")) ["__#__"]) ["a d # n n"])))
+
+  ;; (is (= (patterns-into-grid (list (->Pattern 0 0 down 2 0 "" "ad")) ["#"
+  ;;                                                                     "#"]) ["a"
+  ;;                                                                            "d"]))
+
+(deftest test-arc-consistency
+  (is (= true (arc-consistency? "ratio" "first-n" (list (->Pattern 0 0 across 3 1 "[a-z]at" "")) {:3 '("cat")})))
+  (is (= false (arc-consistency? "ratio" "first-n" (list (->Pattern 0 0 across 3 1 "[a-z]ot" "")) {:3 '("cat" "cit")})))
+  (is (= true (arc-consistency? "most-constrained" "first-n" (list (->Pattern 0 0 across 3 1 "[a-z]ot" "")) {:3 '("cat" "cot")})))
+  (is (= false (arc-consistency? "most-constrained" "first-n" (list (->Pattern 0 0 across 3 1 "[a-z]ot" "")
+                                                                    (->Pattern 0 0 across 3 0 "[a-z]ig" "")) {:3 '("cat" "cot")}))))
+
