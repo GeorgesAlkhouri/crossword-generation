@@ -121,17 +121,12 @@
             (let [res (solve patterns wordlist #{})]
               (if (nil? res)
                 false
-                (and (not (some false? (map #(word-legal? (:word %) wordlist) (first res))))
-                     (= (count patterns) (count (first res)))))))]
-    (swap! result assoc :s false)
+                (and (not (some false? (map #(word-legal? (:word %) wordlist) (last res))))
+                     (= (count patterns) (count (last res)))))))]
     (is (= true (solve-grid (-> test-grid-simple format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
-    (swap! result assoc :s false)
     (is (= true (solve-grid (-> test-grid-medium format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
-    (swap! result assoc :s false)
     (is (= true (solve-grid (-> test-grid-hard format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
-    (swap! result assoc :s false)
     (is (= true (solve-grid (-> test-grid-harder format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
-    (swap! result assoc :s false)
     ))
 
 (deftest test-patterns-into-grid
@@ -158,6 +153,7 @@
   (is (= true (arc-consistency? "ratio" "first-n" (list (->Pattern 0 0 across 3 1 "[a-z]at" "")) {:3 '("cat")})))
   (is (= false (arc-consistency? "ratio" "first-n" (list (->Pattern 0 0 across 3 1 "[a-z]ot" "")) {:3 '("cat" "cit")})))
   (is (= true (arc-consistency? "most-constrained" "first-n" (list (->Pattern 0 0 across 3 1 "[a-z]ot" "")) {:3 '("cat" "cot")})))
-  (is (= false (arc-consistency? "most-constrained" "first-n" (list (->Pattern 0 0 across 3 1 "[a-z]ot" "")
-                                                                    (->Pattern 0 0 across 3 0 "[a-z]ig" "")) {:3 '("cat" "cot")}))))
+  ;; (is (= false (arc-consistency? "most-constrained" "first-n" (list (->Pattern 0 0 across 3 1 "[a-z]ot" "")
+  ;;                                                                   (->Pattern 0 0 across 3 0 "[a-z]ig" "")) {:3 '("cat" "cot")})))
+  )
 

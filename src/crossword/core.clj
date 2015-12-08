@@ -340,40 +340,32 @@
 ;; 2. Recalculate possibilites of inserting a word for each affected crossworing for w and build PRODUCT
 ;; 3. Use the word that maximizes this PRODUCT
 
-(def result (atom {:s false}))
-
-
 (def pick "random")
 (def fill "ratio")
 
 (defn solve
   [patterns wordlist solved]
   (if (empty? patterns)
-    (let []
-      (swap! result assoc :s true)
-      [true solved])
-    (if (not (:s @result))
-      (let [next-pattern (fill-pattern fill patterns wordlist) ;; 1. Delete tuple from list with lowest freedo,
-            possible-words (pick-words pick next-pattern patterns wordlist) ;; 2. Instantiate pattern to grid
-            ] ;; 3.-4. Propagate instantiation to affected patterns and check for arc-consistent
-        (when (not (empty? possible-words))
-          (for [word possible-words
-                :let [solved? (if (not (:s @result))
-                                (let [updated (propagate-pattern fill next-pattern patterns word wordlist)
-                                      arc-consistent (arc-consistency? fill pick (:p updated) wordlist)]
-                                  (if arc-consistent
-                                    (let [w (:w updated)
-                                          ps (:p updated)
-                                          u (update-patterns patterns ps)]
-                                      (solve
-                                       (remove #(pattern-equal? next-pattern %) u)
-                                       (assoc wordlist
-                                         (-> (count w) str keyword)
-                                         (remove #(= w %) (words-with-length (count w) wordlist)))
-                                       (cons (assoc next-pattern :word w) solved))))))]
-                :when (first solved?)]
-            (last solved?)))))))
-
+    [true solved]
+    (let [next-pattern (fill-pattern fill patterns wordlist) ;; 1. Delete tuple from list with lowest freedo,
+          possible-words (pick-words pick next-pattern patterns wordlist) ;; 2. Instantiate pattern to grid
+          ] ;; 3.-4. Propagate instantiation to affected patterns and check for arc-consistent
+      (when-not (empty? possible-words)
+        (reduce (fn [interim-result word]
+                  (if-not (first interim-result)
+                    (let [updated (propagate-pattern fill next-pattern patterns word wordlist)
+                          arc-consistent (arc-consistency? fill pick (:p updated) wordlist)]
+                      (if arc-consistent
+                        (let [w (:w updated)
+                              ps (:p updated)
+                              u (update-patterns patterns ps)]
+                          (solve
+                           (remove #(pattern-equal? next-pattern %) u)
+                           (assoc wordlist
+                             (-> (count w) str keyword)
+                             (remove #(= w %) (words-with-length (count w) wordlist)))
+                           (cons (assoc next-pattern :word w) solved)))))
+                    interim-result)) [false] possible-words)))))
 
 ;; ["_ _"
 ;;  "_ _"]
@@ -383,11 +375,11 @@
   (let []
     (swap! result assoc :s false)
     (let [wordlist (-> (read-wordlist) hash-wordlist)
-          grid (format-grid test-grid-medium)
+          grid (format-grid test-grid-harder)
           patterns (create-patterns grid)
           res (solve patterns wordlist #{})]
-      (if (not (nil? res))
-        (doseq [line (patterns-into-grid (first res) grid)]
+      (if-not (nil? res)
+        (doseq [line (patterns-into-grid (last res) grid)]
           (println line))
         (println "Not solvable.")))))
 
