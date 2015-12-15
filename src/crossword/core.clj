@@ -1,64 +1,21 @@
 (ns crossword.core
-  (:gen-class)
-  (:use clojure.test))
+  (:gen-class))
+(require '[clojure.test])
 (require '[criterium.core :as criterium])
 (require '[clojure.java.io :as io])
 (require '[clojure.string :as string])
+(require '[clojail.core :as clojail])
 
 (defrecord Pattern [x y direction length freedom regex word])
 
-(def across true)
-(def down false)
+(def ^:const across true)
+(def ^:const down false)
 
-(def test-grid-simple ["# # _ _ _"
-                       "# _ _ _ _"
-                       "_ _ _ _ _"
-                       "_ _ _ _ #"
-                       "_ _ _ # #"])
-
-(def test-grid-easy ["_ _ #"
-                     "_ _ _"
-                     "_ _ _"])
-
-(def test-grid-medium ["# # # _ _ _ # # #"
-                       "# # _ _ _ _ _ # #"
-                       "# _ _ _ _ _ _ _ #"
-                       "_ _ _ _ # _ _ _ _"
-                       "_ _ _ # # # _ _ _"
-                       "_ _ _ _ # _ _ _ _"
-                       "# _ _ _ _ _ _ _ #"
-                       "# # _ _ _ _ _ # #"
-                       "# # # _ _ _ # # #"])
-
-(def test-grid-hard ["_ _ _ _ # _ _ _ # _ _ _ _"
-                     "_ _ _ _ # _ _ _ # _ _ _ _"
-                     "_ _ _ _ # _ _ _ # _ _ _ _"
-                     "_ _ _ _ _ _ # _ _ _ _ _ _"
-                     "# # # _ _ _ # _ _ _ # # #"
-                     "_ _ _ _ _ # # # _ _ _ _ _"
-                     "_ _ _ # # # # # # # _ _ _"
-                     "_ _ _ _ _ # # # _ _ _ _ _"
-                     "# # # _ _ _ # _ _ _ # # #"
-                     "_ _ _ _ _ _ # _ _ _ _ _ _"
-                     "_ _ _ _ # _ _ _ # _ _ _ _"
-                     "_ _ _ _ # _ _ _ # _ _ _ _"
-                     "_ _ _ _ # _ _ _ # _ _ _ _"])
-
-(def test-grid-harder ["_ _ _ _ _ _ # _ _ _ _ _ _ _ _"
-                       "# _ # _ # _ # _ # _ # _ # _ #"
-                       "_ _ _ _ _ _ _ _ _ _ # _ _ _ _"
-                       "# _ # _ # _ # _ # _ # _ # _ #"
-                       "_ _ _ _ _ _ _ _ # _ _ _ _ _ _"
-                       "# # # _ # _ # _ # _ # # # _ #"
-                       "_ _ _ _ # # # _ _ _ _ _ _ _ _"
-                       "# _ # _ # _ # _ # _ # _ # _ #"
-                       "_ _ _ _ _ _ _ _ # # # _ _ _ _"
-                       "# _ # # # _ # _ # _ # _ # # #"
-                       "_ _ _ _ _ _ # _ _ _ _ _ _ _ _"
-                       "# _ # _ # _ # _ # _ # _ # _ #"
-                       "_ _ _ _ # _ _ _ _ _ _ _ _ _ _"
-                       "# _ # _ # _ # _ # _ # _ # _ #"
-                       "_ _ _ _ _ _ _ _ # _ _ _ _ _ _"])
+(def ^:const most-constrained "most-constrained")
+(def ^:const ratio "ratio")
+(def ^:const first-n "first-n")
+(def ^:const random "random")
+(def ^:const dynamic "dynamic")
 
 ;;;;;;;Util
 
@@ -90,14 +47,14 @@
   "Get a list of columns from the grid."
   [grid]
   (let [count (count grid)]
-   (map #(apply str %) (partition count (apply interleave grid)))))
+    (map #(apply str %) (partition count (apply interleave grid)))))
 
 (defn format-grid
   "Removes space chars from the grid strings."
   [grid]
   (map #(.replace % " " "") grid))
 
-;source http://stackoverflow.com/questions/3262195/compact-clojure-code-for-regular-expression-matches-and-their-position-in-string
+                                        ;source http://stackoverflow.com/questions/3262195/compact-clojure-code-for-regular-expression-matches-and-their-position-in-string
 (defn re-pos
   "Finds matching regex and returns them with their respective position"
   [re s]
@@ -111,14 +68,14 @@
   "Maps positions, directions and lengths to patterns."
   [patterns direction]
   (apply concat (map-indexed (fn ;; concat because of nested map, otherwise it would create nested list.
-                  [idx itm]
-                  (map (fn [p]
-                         (let [pos (first p)
-                               len (count (second p))]
-                           (if (= direction across)
-                             (->Pattern idx pos direction len 0 "" "")
-                             (->Pattern pos idx direction len 0 "" "")))) itm))
-                patterns)))
+                               [idx itm]
+                               (map (fn [p]
+                                      (let [pos (first p)
+                                            len (count (second p))]
+                                        (if (= direction across)
+                                          (->Pattern idx pos direction len 0 "" "")
+                                          (->Pattern pos idx direction len 0 "" "")))) itm))
+                             patterns)))
 
 (defn pattern->regex
   "Creates a regex from a patter and the corresponding grid."
@@ -174,7 +131,6 @@
 (defn replace-string
   "Insert c in string s at index i."
   [s c i]
-  ;;(println s c i)
   (str (subs s 0 i) c (subs s (+ i 1))))
 
 (defn update-regex
@@ -196,9 +152,9 @@
 
 (defn pattern-replace
   [patterns replace]
-   (map #(if (pattern-equal? replace %)
-           replace
-           %) patterns))
+  (map #(if (pattern-equal? replace %)
+          replace
+          %) patterns))
 
 (defn update-patterns
   [patterns replacements]
@@ -261,8 +217,8 @@
   "Fill a pattern for a given fill/delete strategy f. Chooses the most constrained pattern. "
   [fill patterns wordlist]
   (let [rated (update-freedom fill patterns wordlist)
-        most-constrained (apply min-key #(:freedom %) rated)] ;;dirty! change it, so that you can abstract from most-constraint to any pick strat.
-    most-constrained))
+        most-constr (apply min-key #(:freedom %) rated)] ;;dirty! change it, so that you can abstract from most-constraint to any pick strat.
+    most-constr))
 
 ;;;;;;;Pick Strategies;;;;;;;
 
@@ -282,15 +238,15 @@
 
 (defmethod pick-strategy :dynamic
   [data]
-  (let [random (pick-strategy {:pick-strategy :random
-                               :regex (:regex data)
-                               :words (:words data)})
+  (let [random-pick (pick-strategy {:pick-strategy :random
+                                    :regex (:regex data)
+                                    :words (:words data)})
         pattern (:pattern data)
         patterns (:patterns data)
         wordlist (:wordlist data)
-        words (map #(let [p' (propagate-pattern "most-constrained" pattern patterns % wordlist)
+        words (map #(let [p' (propagate-pattern most-constrained pattern patterns % wordlist)
                           freedom (reduce *' (map :freedom (:p p')))]
-                      {:w % :f freedom}) random)]
+                      {:w % :f freedom}) random-pick)]
     (map :w (reverse (sort-by :f words)))))
 
 ;;;;;;;Program;;;;;;;
@@ -313,12 +269,12 @@
   "Picks possible words with a picking strategy." 
   [strategy pattern patterns wordlist]
   (let [words (cond
-               (= strategy "dynamic") (pick-strategy {:pick-strategy :dynamic
-                                                      :regex (-> (:regex pattern) re-pattern)
-                                                      :words (words-with-length (:length pattern) wordlist)
-                                                      :wordlist wordlist
-                                                      :pattern pattern
-                                                      :patterns patterns})
+               (= strategy dynamic) (pick-strategy {:pick-strategy :dynamic
+                                                    :regex (-> (:regex pattern) re-pattern)
+                                                    :words (words-with-length (:length pattern) wordlist)
+                                                    :wordlist wordlist
+                                                    :pattern pattern
+                                                    :patterns patterns})
                :else (pick-strategy {:pick-strategy (keyword strategy)
                                      :regex (-> (:regex pattern) re-pattern)
                                      :words (words-with-length (:length pattern) wordlist)}))]
@@ -329,63 +285,121 @@
   (if (or (empty? patterns)
           (nil? patterns))
     true ;; last case every pattern has been solved
-    (if (or (= fill "most-constrained")
-            (= pick "dynamic")
-            (= pick "probe"))
-;;      (every? #(> (:freedom %) 0) patterns)
+    (if (or (= fill most-constrained)
+            (= pick dynamic)
+            ;;(= pick probe)
+            )
+      ;;      (every? #(> (:freedom %) 0) patterns)
       true
       (every? true? (map #(contains-word (re-pattern (:regex %)) (words-with-length (:length %) wordlist)) patterns)))))
 
-;; 1. Insert word w
-;; 2. Recalculate possibilites of inserting a word for each affected crossworing for w and build PRODUCT
-;; 3. Use the word that maximizes this PRODUCT
-
-(def pick "random")
-(def fill "ratio")
-
-(defn solve
-  [patterns wordlist solved]
-  (if (empty? patterns)
-    [true solved]
-    (let [next-pattern (fill-pattern fill patterns wordlist) ;; 1. Delete tuple from list with lowest freedo,
-          possible-words (pick-words pick next-pattern patterns wordlist) ;; 2. Instantiate pattern to grid
-          ] ;; 3.-4. Propagate instantiation to affected patterns and check for arc-consistent
-      (when-not (empty? possible-words)
-        (reduce (fn [interim-result word]
-                  (if-not (first interim-result)
-                    (let [updated (propagate-pattern fill next-pattern patterns word wordlist)
-                          arc-consistent (arc-consistency? fill pick (:p updated) wordlist)]
-                      (if arc-consistent
-                        (let [w (:w updated)
-                              ps (:p updated)
-                              u (update-patterns patterns ps)]
-                          (solve
-                           (remove #(pattern-equal? next-pattern %) u)
-                           (assoc wordlist
-                             (-> (count w) str keyword)
-                             (remove #(= w %) (words-with-length (count w) wordlist)))
-                           (cons (assoc next-pattern :word w) solved)))))
-                    interim-result)) [false] possible-words)))))
+(defn solve [patterns wordlist fill pick]
+  (letfn [(solve-rec [patterns wordlist back-tracks solved]
+            (if (empty? patterns)
+              [true back-tracks solved]
+              (let [next-pattern (fill-pattern fill patterns wordlist) ;; 1. Delete tuple from list with lowest freedo,
+                    possible-words (pick-words pick next-pattern patterns wordlist) ;; 2. Instantiate pattern to grid
+                    ]
+                (let [[s? b s-p] (reduce (fn [interim-result word]                                           
+                                           (if-not (first interim-result)
+                                             (let [updated (propagate-pattern fill next-pattern patterns word wordlist) ;; 3.-4. Propagate instantiation to affected patterns and check for arc-consistent
+                                                   arc-consistent (arc-consistency? fill pick (:p updated) wordlist)]
+                                               (if arc-consistent
+                                                 (let [w (:w updated)
+                                                       ps (:p updated)
+                                                       u (update-patterns patterns ps)]
+                                                   (solve-rec
+                                                    (remove #(pattern-equal? next-pattern %) u)
+                                                    (assoc wordlist
+                                                      (-> (count w) str keyword)
+                                                      (remove #(= w %) (words-with-length (count w) wordlist)))
+                                                    (second interim-result)
+                                                    (cons (assoc next-pattern :word w) solved)))
+                                                 [false back-tracks solved]))
+                                             interim-result)) [false back-tracks solved] possible-words)
+                      b' (if-not s? (inc b) b)]
+                  [s? b' s-p]))))]
+    (solve-rec patterns wordlist 0 #{})))
 
 ;; ["_ _"
 ;;  "_ _"]
 
+(def grid-5x5  ["# # _ _ _"
+                "# _ _ _ _"
+                "_ _ _ _ _"
+                "_ _ _ _ #"
+                "_ _ _ # #"])
+
+;; (def test-grid-easy ["_ _ #"
+;;                      "_ _ _"
+;;                      "_ _ _"])
+
+(def grid-9x9 ["# # # _ _ _ # # #"
+               "# # _ _ _ _ _ # #"
+               "# _ _ _ _ _ _ _ #"
+               "_ _ _ _ # _ _ _ _"
+               "_ _ _ # # # _ _ _"
+               "_ _ _ _ # _ _ _ _"
+               "# _ _ _ _ _ _ _ #"
+               "# # _ _ _ _ _ # #"
+               "# # # _ _ _ # # #"])
+
+(def grid-13x13 ["_ _ _ _ # _ _ _ # _ _ _ _"
+                 "_ _ _ _ # _ _ _ # _ _ _ _"
+                 "_ _ _ _ # _ _ _ # _ _ _ _"
+                 "_ _ _ _ _ _ # _ _ _ _ _ _"
+                 "# # # _ _ _ # _ _ _ # # #"
+                 "_ _ _ _ _ # # # _ _ _ _ _"
+                 "_ _ _ # # # # # # # _ _ _"
+                 "_ _ _ _ _ # # # _ _ _ _ _"
+                 "# # # _ _ _ # _ _ _ # # #"
+                 "_ _ _ _ _ _ # _ _ _ _ _ _"
+                 "_ _ _ _ # _ _ _ # _ _ _ _"
+                 "_ _ _ _ # _ _ _ # _ _ _ _"
+                 "_ _ _ _ # _ _ _ # _ _ _ _"])
+
+(def grid-15x15 ["_ _ _ _ _ _ # _ _ _ _ _ _ _ _"
+                 "# _ # _ # _ # _ # _ # _ # _ #"
+                 "_ _ _ _ _ _ _ _ _ _ # _ _ _ _"
+                 "# _ # _ # _ # _ # _ # _ # _ #"
+                 "_ _ _ _ _ _ _ _ # _ _ _ _ _ _"
+                 "# # # _ # _ # _ # _ # # # _ #"
+                 "_ _ _ _ # # # _ _ _ _ _ _ _ _"
+                 "# _ # _ # _ # _ # _ # _ # _ #"
+                 "_ _ _ _ _ _ _ _ # # # _ _ _ _"
+                 "# _ # # # _ # _ # _ # _ # # #"
+                 "_ _ _ _ _ _ # _ _ _ _ _ _ _ _"
+                 "# _ # _ # _ # _ # _ # _ # _ #"
+                 "_ _ _ _ # _ _ _ _ _ _ _ _ _ _"
+                 "# _ # _ # _ # _ # _ # _ # _ #"
+                 "_ _ _ _ _ _ _ _ # _ _ _ _ _ _"])
+
 (defn -main
   [& args]
   (let []
-    (swap! result assoc :s false)
     (let [wordlist (-> (read-wordlist) hash-wordlist)
-          grid (format-grid test-grid-harder)
+          grid (format-grid grid-9x9)
           patterns (create-patterns grid)
-          res (solve patterns wordlist #{})]
+          res (solve patterns wordlist ratio random)]
+      (println "Backtacks: " (second res))
       (if-not (nil? res)
         (doseq [line (patterns-into-grid (last res) grid)]
           (println line))
         (println "Not solvable.")))))
 
+(defn solve-with-timeout
+  [ms patterns wordlist fill pick]
+  (try
+    (clojail/thunk-timeout (fn [] (solve patterns wordlist fill pick)) ms)
+    (catch Exception e nil)))
+
 (defn -bench
   [& args]
-  (let [wordlist (-> (read-wordlist) hash-wordlist)
-        grid (format-grid test-grid-simple)
-        patterns (create-patterns grid)]
-    (criterium/bench (solve patterns wordlist #{}))))
+  (let [wordlist (-> (read-wordlist) hash-wordlist)]
+    (for [fill '(most-constrained ratio)
+          pick '(first-n random dynamic)
+          grid (list grid-5x5 grid-9x9 grid-13x13 grid-15x15)
+          :let [g (format-grid grid)
+                p (create-patterns g)
+                report (with-out-str (criterium/bench (solve-with-timeout 10000 p wordlist fill pick)))]]
+      {:g (count grid) :f fill :p pick :r report})))

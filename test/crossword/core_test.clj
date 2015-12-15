@@ -25,7 +25,7 @@
   (is (= (hash-wordlist '("a" "ab" "abc" "aa" "bb" "c")) {:1 '("a" "c"), :2 '("ab" "aa" "bb"), :3 '("abc")}))) ;; order will be respected
 
 (deftest create-init-patterns
-  (is (= (create-patterns (format-grid test-grid-simple)) (set (list (->Pattern 0 2 across 3 0 "[a-z][a-z][a-z]" "")
+  (is (= (create-patterns (format-grid grid-5x5)) (set (list (->Pattern 0 2 across 3 0 "[a-z][a-z][a-z]" "")
                                                                      (->Pattern 1 1 across 4 0 "[a-z][a-z][a-z][a-z]" "")
                                                                      (->Pattern 2 0 across 5 0 "[a-z][a-z][a-z][a-z][a-z]" "")
                                                                      (->Pattern 3 0 across 4 0 "[a-z][a-z][a-z][a-z]" "")
@@ -46,7 +46,7 @@
                                               (->Pattern 0 1 down 2 0 "[a-z][a-z]" ""))))))
 
 (deftest test-pattern->regex
-  (is (= (str (pattern->regex (->Pattern 0 2 across 3 0 "" "") (format-grid test-grid-simple))) (str  #"[a-z][a-z][a-z]")))
+  (is (= (str (pattern->regex (->Pattern 0 2 across 3 0 "" "") (format-grid grid-5x5))) (str  #"[a-z][a-z][a-z]")))
   (is (= (str (pattern->regex (->Pattern 0 0 down 2 0 "" "") (format-grid test-grid-all-patterns))) (str #"[a-z][a-z]")))
   (is (= (str (pattern->regex (->Pattern 0 1 across 3 0 "" "") (format-grid test-grid-letters))) (str #"ap[a-z]"))))
 
@@ -117,17 +117,23 @@
             [w dict]
             (let [words (words-with-length (count w) dict)]
               (some #(= w %) words)))
-          (solve-grid [patterns wordlist]
-            (let [res (solve patterns wordlist #{})]
+          (solve-grid [patterns wordlist fill pick]
+            (let [res (solve patterns wordlist fill pick)]
               (if (nil? res)
                 false
                 (and (not (some false? (map #(word-legal? (:word %) wordlist) (last res))))
-                     (= (count patterns) (count (last res)))))))]
-    (is (= true (solve-grid (-> test-grid-simple format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
-    (is (= true (solve-grid (-> test-grid-medium format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
-    (is (= true (solve-grid (-> test-grid-hard format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
-    (is (= true (solve-grid (-> test-grid-harder format-grid create-patterns) (-> (read-wordlist) hash-wordlist))))
-    ))
+                     (= (count patterns) (count (last res)))))))
+          (test-grids [fill pick]
+            (is (= true (solve-grid (-> grid-5x5 format-grid create-patterns) (-> (read-wordlist) hash-wordlist) fill pick)))
+            (is (= true (solve-grid (-> grid-9x9 format-grid create-patterns) (-> (read-wordlist) hash-wordlist ) fill pick)))
+            ;;(is (= true (solve-grid (-> test-grid-hard format-grid create-patterns) (-> (read-wordlist) hash-wordlist) fill pick)))
+            (is (= true (solve-grid (-> grid-15x15 format-grid create-patterns) (-> (read-wordlist) hash-wordlist) fill pick))))]
+    (test-grids most-constrained first-n)
+    (test-grids most-constrained random)
+    (test-grids most-constrained dynamic)
+    (test-grids ratio first-n)
+    (test-grids ratio random)
+    (test-grids ratio dynamic)))
 
 (deftest test-patterns-into-grid
   (is (= (patterns-into-grid (list (->Pattern 0 0 across 2 1 "" "ad")
