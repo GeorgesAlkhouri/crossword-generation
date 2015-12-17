@@ -293,6 +293,8 @@
       true
       (every? true? (map #(contains-word (re-pattern (:regex %)) (words-with-length (:length %) wordlist)) patterns)))))
 
+;;(def bench-bt (atom {:bt []}))
+
 (defn solve [patterns wordlist fill pick]
   (letfn [(solve-rec [patterns wordlist back-tracks solved]
             (if (empty? patterns)
@@ -374,16 +376,31 @@
                  "# _ # _ # _ # _ # _ # _ # _ #"
                  "_ _ _ _ _ _ _ _ # _ _ _ _ _ _"])
 
+(defn seed
+  ""
+  [patterns fill pick wordlist]
+  (let [max-length (-> (apply max-key #(:length %) patterns) :length)
+        filtered-p (filter #(= max-length (:length %)) patterns)
+        random-max-p (-> filtered-p shuffle first)
+        random-w (-> (words-with-length (:length random-max-p) wordlist) shuffle first);; FIXME: Check for nil return from wordlist
+        updated-p (propagate-pattern fill random-max-p patterns random-w wordlist)
+        arc-consistent? (arc-consistency? fill pick (:p updated-p) wordlist)]
+    (if-not arc-consistent?
+      (throw (Exception. "Not arc-consistent seeding."))
+      (let [final-p (assoc random-max-p :regex random-w :word random-w :freedom 0)]
+        (update-patterns patterns (cons final-p (:p updated-p)))))))
+
 (defn -main
-  [& args]
+  [fill pick grid]
   (let []
     (let [wordlist (-> (read-wordlist) hash-wordlist)
-          grid (format-grid grid-9x9)
-          patterns (create-patterns grid)
-          res (solve patterns wordlist ratio random)]
+          g' (format-grid grid)
+          patterns (create-patterns g')
+          seeded-p (seed patterns fill pick wordlist)
+          res (solve seeded-p wordlist fill pick)]
       (println "Backtacks: " (second res))
       (if-not (nil? res)
-        (doseq [line (patterns-into-grid (last res) grid)]
+              (doseq [line (patterns-into-grid (last res) g')]
           (println line))
         (println "Not solvable.")))))
 
@@ -391,15 +408,28 @@
   [ms patterns wordlist fill pick]
   (try
     (clojail/thunk-timeout (fn [] (solve patterns wordlist fill pick)) ms)
-    (catch Exception e nil)))
+    (catch Exception e [false 0 "Timeout: No result."])))
 
 (defn -bench
-  [& args]
-  (let [wordlist (-> (read-wordlist) hash-wordlist)]
-    (for [fill '(most-constrained ratio)
-          pick '(first-n random dynamic)
-          grid (list grid-5x5 grid-9x9 grid-13x13 grid-15x15)
-          :let [g (format-grid grid)
-                p (create-patterns g)
-                report (with-out-str (criterium/bench (solve-with-timeout 10000 p wordlist fill pick)))]]
-      {:g (count grid) :f fill :p pick :r report})))
+  [fill pick grid]
+  (let [wordlist (-> (read-wordlist) hash-wordlist)
+        g (format-grid grid)
+        p (create-patterns g)
+        seeded-p (seed p fill pick wordlist)
+        [s? b p] (time (solve-with-timeout 10000 seeded-p wordlist fill pick))]
+    (if s?
+      (println "Bt:" b)
+      (println p))))
+
+;; (defn -bench
+;;   [& args]
+;;   (let [wordlist (-> (read-wordlist) hash-wordlist)]
+;;     (for [fill '(most-constrained)
+;;           pick '(first-n)
+;;           grid (list grid-5x5)
+;;           :let [fresh (swap! bench-bt assoc :bt [])
+;;                 g (format-grid grid)
+;;                 p (create-patterns g)
+;;                 report (with-out-str (criterium/bench (solve-with-timeout 10000 p wordlist fill pick)))
+;;                 avg (if (= 0 (count (:bt @bench-bt))) 0 (/ (reduce + (:bt @bench-bt)) (count (:bt @bench-bt))))]]
+;;       {:g (count grid) :f fill :p pick :r report :bt avg})))
