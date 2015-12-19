@@ -5,6 +5,7 @@
 (require '[clojure.java.io :as io])
 (require '[clojure.string :as string])
 (require '[clojail.core :as clojail])
+(require '[clojure.core.reducers :as reducers])
 
 (defrecord Pattern [x y direction length freedom regex word])
 
@@ -408,18 +409,19 @@
   [ms patterns wordlist fill pick]
   (try
     (clojail/thunk-timeout (fn [] (solve patterns wordlist fill pick)) ms)
-    (catch Exception e [false 0 "Timeout: No result."])))
+    (catch Exception e [false 0 patterns])))
 
 (defn -bench
   [fill pick grid]
   (let [wordlist (-> (read-wordlist) hash-wordlist)
         g (format-grid grid)
-        p (create-patterns g)
-        seeded-p (seed p fill pick wordlist)
-        [s? b p] (time (solve-with-timeout 10000 seeded-p wordlist fill pick))]
-    (if s?
-      (println "Bt:" b)
-      (println p))))
+        p (create-patterns g)]
+        (for [i (range 0 40)]
+          (let [seeded-p (seed p fill pick wordlist)
+                [s? b p] (time (solve-with-timeout 60000 seeded-p wordlist fill pick))]
+            (if s?
+              (println "Bt:" b)
+              (println p))))))
 
 ;; (defn -bench
 ;;   [& args]
