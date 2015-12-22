@@ -18,7 +18,53 @@
 (def ^:const random "random")
 (def ^:const dynamic "dynamic")
 
-;;;;;;;Util
+(def ^:const grid-5x5  ["# # _ _ _"
+                        "# _ _ _ _"
+                        "_ _ _ _ _"
+                        "_ _ _ _ #"
+                        "_ _ _ # #"])
+
+(def ^:const grid-9x9 ["# # # _ _ _ # # #"
+                       "# # _ _ _ _ _ # #"
+                       "# _ _ _ _ _ _ _ #"
+                       "_ _ _ _ # _ _ _ _"
+                       "_ _ _ # # # _ _ _"
+                       "_ _ _ _ # _ _ _ _"
+                       "# _ _ _ _ _ _ _ #"
+                       "# # _ _ _ _ _ # #"
+                       "# # # _ _ _ # # #"])
+
+(def ^:const grid-13x13 ["_ _ _ _ # _ _ _ # _ _ _ _"
+                         "_ _ _ _ # _ _ _ # _ _ _ _"
+                         "_ _ _ _ # _ _ _ # _ _ _ _"
+                         "_ _ _ _ _ _ # _ _ _ _ _ _"
+                         "# # # _ _ _ # _ _ _ # # #"
+                         "_ _ _ _ _ # # # _ _ _ _ _"
+                         "_ _ _ # # # # # # # _ _ _"
+                         "_ _ _ _ _ # # # _ _ _ _ _"
+                         "# # # _ _ _ # _ _ _ # # #"
+                         "_ _ _ _ _ _ # _ _ _ _ _ _"
+                         "_ _ _ _ # _ _ _ # _ _ _ _"
+                         "_ _ _ _ # _ _ _ # _ _ _ _"
+                         "_ _ _ _ # _ _ _ # _ _ _ _"])
+
+(def ^:const grid-15x15 ["_ _ _ _ _ _ # _ _ _ _ _ _ _ _"
+                         "# _ # _ # _ # _ # _ # _ # _ #"
+                         "_ _ _ _ _ _ _ _ _ _ # _ _ _ _"
+                         "# _ # _ # _ # _ # _ # _ # _ #"
+                         "_ _ _ _ _ _ _ _ # _ _ _ _ _ _"
+                         "# # # _ # _ # _ # _ # # # _ #"
+                         "_ _ _ _ # # # _ _ _ _ _ _ _ _"
+                         "# _ # _ # _ # _ # _ # _ # _ #"
+                         "_ _ _ _ _ _ _ _ # # # _ _ _ _"
+                         "# _ # # # _ # _ # _ # _ # # #"
+                         "_ _ _ _ _ _ # _ _ _ _ _ _ _ _"
+                         "# _ # _ # _ # _ # _ # _ # _ #"
+                         "_ _ _ _ # _ _ _ _ _ _ _ _ _ _"
+                         "# _ # _ # _ # _ # _ # _ # _ #"
+                         "_ _ _ _ _ _ _ _ # _ _ _ _ _ _"])
+
+;;;;;;;Helper;;;;;;;
 
 (defn read-wordlist
   "Reads the provided word list into a seq."
@@ -41,8 +87,6 @@
                 new-list (conj old-list (first remain))]
             (recur (next remain) (assoc result key new-list))) ;; add new word to key
           )))))
-
-;;;;;;;Helpers;;;;;;;
 
 (defn get-columns
   "Get a list of columns from the grid."
@@ -93,7 +137,36 @@
       (-> (extract (:y pattern) (:length pattern) (nth grid (:x pattern))) parse)
       (-> (extract (:x pattern) (:length pattern) (nth (get-columns grid) (:y pattern))) parse))))
 
-(defn pattern->rect [pattern]
+(defn create-patterns
+  "Determines all patterns from a fresh grid. Only execudes one time after start."
+  [grid]
+  (let [horizontal grid
+        vertical (get-columns grid)
+        patterns-h (map #(re-pos #"_+" %) horizontal)
+        patterns-v (map #(re-pos #"_+" %) vertical)
+        mapped-p-h (map-patterns patterns-h across)
+        mapped-p-v (map-patterns patterns-v down)
+        patterns ( map (fn [p]
+                         (let [regex (pattern->regex p grid)]
+                           (assoc p :regex (str regex)))) (concat mapped-p-h mapped-p-v))]
+    (set (filter #(not= (:length %) 1) patterns))))
+
+(defn patterns-into-grid
+  [patterns grid]
+  (let [removed (remove #(= down (:direction %)) patterns)
+        sorted (sort-by :x removed)
+        parted (partition-by :x sorted)]
+    (map #(let [res (reduce (fn [a b]
+                              (let [pos (:y b)
+                                    s (str (subs a 0 pos) (:word b) (subs a (+ pos (:length b))))]
+                                s)) (nth grid (:x (first %)))  %)]
+            (apply str (interpose " " res))) parted)))
+
+;;;;;;;Program;;;;;;;
+
+(defn pattern->rect
+  "Maps a pattern to its rectangle representation."
+  [pattern]
   (let [left (:y pattern)
         top (:x pattern)
         right (if (= (:direction pattern) across)
@@ -105,6 +178,7 @@
     {:left left :top top :right right :bottom bottom}))
 
 (defn get-affected-patterns
+  "Gets intersecting patterns of given pattern."
   [patterns pattern]
   (let [a (pattern->rect pattern)]
     (filter #(let [b (pattern->rect %)]
@@ -116,6 +190,7 @@
                 (not= a b))) patterns) ))
 
 (defn match-words
+  ""
   [regex words]
   (filter #(re-matches regex %) words))
 
@@ -159,23 +234,8 @@
 
 (defn update-patterns
   [patterns replacements]
-  (loop [p patterns
-         r replacements]
-    (if (empty? r)
-      p
-      (recur (pattern-replace p (first r))
-             (next r)))))
-
-(defn patterns-into-grid
-  [patterns grid]
-  (let [removed (remove #(= down (:direction %)) patterns)
-        sorted (sort-by :x removed)
-        parted (partition-by :x sorted)]
-    (map #(let [res (reduce (fn [a b]
-                              (let [pos (:y b)
-                                    s (str (subs a 0 pos) (:word b) (subs a (+ pos (:length b))))]
-                                s)) (nth grid (:x (first %)))  %)]
-            (apply str (interpose " " res))) parted)))
+  (reduce (fn [p r]
+            (pattern-replace p r)) patterns replacements))
 
 (defmulti fill-strategy
   ""
@@ -199,8 +259,6 @@
           p' (update-freedom fill updated-patterns wordlist)]
       {:p p' :w word})))
 
-;;;;;;;Fill Strategies;;;;;;;
-
 (defmethod fill-strategy :most-constrained
   [data]
   (count (match-words (:regex data) (:words data))))
@@ -220,8 +278,6 @@
   (let [rated (update-freedom fill patterns wordlist)
         most-constr (apply min-key #(:freedom %) rated)] ;;dirty! change it, so that you can abstract from most-constraint to any pick strat.
     most-constr))
-
-;;;;;;;Pick Strategies;;;;;;;
 
 (defmulti pick-strategy
   ""
@@ -249,22 +305,6 @@
                           freedom (reduce *' (map :freedom (:p p')))]
                       {:w % :f freedom}) random-pick)]
     (map :w (reverse (sort-by :f words)))))
-
-;;;;;;;Program;;;;;;;
-
-(defn create-patterns
-  "Determines all patterns from a fresh grid. Only execudes one time after start."
-  [grid]
-  (let [horizontal grid
-        vertical (get-columns grid)
-        patterns-h (map #(re-pos #"_+" %) horizontal)
-        patterns-v (map #(re-pos #"_+" %) vertical)
-        mapped-p-h (map-patterns patterns-h across)
-        mapped-p-v (map-patterns patterns-v down)
-        patterns ( map (fn [p]
-                         (let [regex (pattern->regex p grid)]
-                           (assoc p :regex (str regex)))) (concat mapped-p-h mapped-p-v))]
-    (set (filter #(not= (:length %) 1) patterns))))
 
 (defn pick-words
   "Picks possible words with a picking strategy." 
@@ -294,8 +334,6 @@
       true
       (every? true? (map #(contains-word (re-pattern (:regex %)) (words-with-length (:length %) wordlist)) patterns)))))
 
-;;(def bench-bt (atom {:bt []}))
-
 (defn solve [patterns wordlist fill pick]
   (letfn [(solve-rec [patterns wordlist back-tracks solved]
             (if (empty? patterns)
@@ -323,59 +361,6 @@
                       b' (if-not s? (inc b) b)]
                   [s? b' s-p]))))]
     (solve-rec patterns wordlist 0 #{})))
-
-;; ["_ _"
-;;  "_ _"]
-
-(def grid-5x5  ["# # _ _ _"
-                "# _ _ _ _"
-                "_ _ _ _ _"
-                "_ _ _ _ #"
-                "_ _ _ # #"])
-
-;; (def test-grid-easy ["_ _ #"
-;;                      "_ _ _"
-;;                      "_ _ _"])
-
-(def grid-9x9 ["# # # _ _ _ # # #"
-               "# # _ _ _ _ _ # #"
-               "# _ _ _ _ _ _ _ #"
-               "_ _ _ _ # _ _ _ _"
-               "_ _ _ # # # _ _ _"
-               "_ _ _ _ # _ _ _ _"
-               "# _ _ _ _ _ _ _ #"
-               "# # _ _ _ _ _ # #"
-               "# # # _ _ _ # # #"])
-
-(def grid-13x13 ["_ _ _ _ # _ _ _ # _ _ _ _"
-                 "_ _ _ _ # _ _ _ # _ _ _ _"
-                 "_ _ _ _ # _ _ _ # _ _ _ _"
-                 "_ _ _ _ _ _ # _ _ _ _ _ _"
-                 "# # # _ _ _ # _ _ _ # # #"
-                 "_ _ _ _ _ # # # _ _ _ _ _"
-                 "_ _ _ # # # # # # # _ _ _"
-                 "_ _ _ _ _ # # # _ _ _ _ _"
-                 "# # # _ _ _ # _ _ _ # # #"
-                 "_ _ _ _ _ _ # _ _ _ _ _ _"
-                 "_ _ _ _ # _ _ _ # _ _ _ _"
-                 "_ _ _ _ # _ _ _ # _ _ _ _"
-                 "_ _ _ _ # _ _ _ # _ _ _ _"])
-
-(def grid-15x15 ["_ _ _ _ _ _ # _ _ _ _ _ _ _ _"
-                 "# _ # _ # _ # _ # _ # _ # _ #"
-                 "_ _ _ _ _ _ _ _ _ _ # _ _ _ _"
-                 "# _ # _ # _ # _ # _ # _ # _ #"
-                 "_ _ _ _ _ _ _ _ # _ _ _ _ _ _"
-                 "# # # _ # _ # _ # _ # # # _ #"
-                 "_ _ _ _ # # # _ _ _ _ _ _ _ _"
-                 "# _ # _ # _ # _ # _ # _ # _ #"
-                 "_ _ _ _ _ _ _ _ # # # _ _ _ _"
-                 "# _ # # # _ # _ # _ # _ # # #"
-                 "_ _ _ _ _ _ # _ _ _ _ _ _ _ _"
-                 "# _ # _ # _ # _ # _ # _ # _ #"
-                 "_ _ _ _ # _ _ _ _ _ _ _ _ _ _"
-                 "# _ # _ # _ # _ # _ # _ # _ #"
-                 "_ _ _ _ _ _ _ _ # _ _ _ _ _ _"])
 
 (defn seed
   ""
@@ -422,16 +407,3 @@
             (if s?
               (println "Bt:" b)
               (println p))))))
-
-;; (defn -bench
-;;   [& args]
-;;   (let [wordlist (-> (read-wordlist) hash-wordlist)]
-;;     (for [fill '(most-constrained)
-;;           pick '(first-n)
-;;           grid (list grid-5x5)
-;;           :let [fresh (swap! bench-bt assoc :bt [])
-;;                 g (format-grid grid)
-;;                 p (create-patterns g)
-;;                 report (with-out-str (criterium/bench (solve-with-timeout 10000 p wordlist fill pick)))
-;;                 avg (if (= 0 (count (:bt @bench-bt))) 0 (/ (reduce + (:bt @bench-bt)) (count (:bt @bench-bt))))]]
-;;       {:g (count grid) :f fill :p pick :r report :bt avg})))

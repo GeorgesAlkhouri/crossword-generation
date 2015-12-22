@@ -112,6 +112,14 @@
                (->Pattern 1 0 across 4 0 "[a-z][a-z]o[a-z]" "")
                (->Pattern 2 0 across 3 0 "[a-z][a-z]g" "")))))
 
+(deftest test-update-patterns
+  (is (= (update-patterns (list (->Pattern 0 1 across 2 0 "" "")
+                                (->Pattern 0 0 across 2 0 "" ""))
+                          (list (->Pattern 0 0 across 2 0 "test" "test")
+                                (->Pattern 0 1 across 2 0 "a[a-z]" "")))
+         (list (->Pattern 0 1 across 2 0 "a[a-z]" "")
+               (->Pattern 0 0 across 2 0 "test" "test")))))
+
 (deftest test-solve
   (letfn [(word-legal?
             [w dict]
