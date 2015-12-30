@@ -5,7 +5,7 @@
 (require '[clojure.java.io :as io])
 (require '[clojure.string :as string])
 (require '[clojail.core :as clojail])
-(require '[clojure.core.reducers :as reducers])
+(require '[clojure.core.reducers :as r])
 
 (defrecord Pattern [x y direction length freedom regex word])
 
