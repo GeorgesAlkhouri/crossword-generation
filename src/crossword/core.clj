@@ -242,6 +242,7 @@
   (fn [data] (:fill-strategy data)))
 
 (defn update-freedom
+  "Updates freedom of patterns with a given fill strategy."
   [fill patterns wordlist]
   (map (fn [p]
          (let [regex (re-pattern (:regex p))
@@ -338,13 +339,14 @@
   (letfn [(solve-rec [patterns wordlist back-tracks solved]
             (if (empty? patterns)
               [true back-tracks solved]
-              (let [next-pattern (fill-pattern fill patterns wordlist) ;; 1. Delete tuple from list with lowest freedo,
+              (let [next-pattern (fill-pattern fill patterns wordlist) ;; 1. Delete tuple from list with lowest freedo
                     possible-words (pick-words pick next-pattern patterns wordlist) ;; 2. Instantiate pattern to grid
                     ]
                 (let [[s? b s-p] (reduce (fn [interim-result word]                                           
                                            (if-not (first interim-result)
-                                             (let [updated (propagate-pattern fill next-pattern patterns word wordlist) ;; 3.-4. Propagate instantiation to affected patterns and check for arc-consistent
-                                                   arc-consistent (arc-consistency? fill pick (:p updated) wordlist)]
+                                             (let [updated (propagate-pattern fill next-pattern patterns word wordlist) ;; 3. Propagate instantiation to affected patterns
+                                                   arc-consistent (arc-consistency? fill pick (:p updated) wordlist) ;; 4. Check for arc-consistency
+                                                   ]
                                                (if arc-consistent
                                                  (let [w (:w updated)
                                                        ps (:p updated)
