@@ -1,11 +1,10 @@
 (ns crossword.core
   (:gen-class))
-(require '[clojure.test])
-(require '[criterium.core :as criterium])
-(require '[clojure.java.io :as io])
-(require '[clojure.string :as string])
-(require '[clojail.core :as clojail])
-(require '[clojure.core.reducers :as r])
+(require '[clojure.test]
+         '[criterium.core :as criterium]
+         '[clojure.java.io :as io]
+         '[clojure.string :as string]
+         '[clojail.core :as clojail])
 
 (defrecord Pattern [x y direction length freedom regex word])
 
@@ -67,26 +66,22 @@
 ;;;;;;;Helper;;;;;;;
 
 (defn read-wordlist
-  "Reads the provided word list into a seq."
+  "Reads the provided words list into a sequence."
   []
   (let [path (-> "knuth_words_all_lower_sorted" io/resource io/file)]
     (with-open [rdr (io/reader path)]
-      (doall (line-seq rdr))))) ;; doall needed to realize (not lazy) all lines in buffer ))))
+      (doall (line-seq rdr))))) ;; doall needed to realize (not lazy) all lines in buffer
 
 (defn hash-wordlist
   ""
   [wordlist]
-  (loop [remain wordlist
-         result {}]
-    (let [key (-> (count (first remain)) str keyword)]
-      (if (empty? remain)
-        result
-        (if (nil? (key result)) ;; length not added yet to map
-          (recur (next remain) (assoc result key [(first remain)]));; add new key and new word
-          (let [old-list (key result)
-                new-list (conj old-list (first remain))]
-            (recur (next remain) (assoc result key new-list))) ;; add new word to key
-          )))))
+  (reduce (fn [r w]
+           (let [key (-> (count w) str keyword)]
+             (if (nil? (key r))
+               (assoc r key [w])
+               (let [old-r (key r)
+                     new-r (conj old-r w)]
+                 (assoc r key new-r))))) {} wordlist))
 
 (defn get-columns
   "Get a list of columns from the grid."
@@ -161,6 +156,12 @@
                                     s (str (subs a 0 pos) (:word b) (subs a (+ pos (:length b))))]
                                 s)) (nth grid (:x (first %)))  %)]
             (apply str (interpose " " res))) parted)))
+
+(defn solve-with-timeout
+  [ms patterns wordlist fill pick]
+  (try
+    (clojail/thunk-timeout (fn [] (solve patterns wordlist fill pick)) ms)
+    (catch Exception e [false 0 patterns])))
 
 ;;;;;;;Program;;;;;;;
 
@@ -391,12 +392,6 @@
               (doseq [line (patterns-into-grid (last res) g')]
           (println line))
         (println "Not solvable.")))))
-
-(defn solve-with-timeout
-  [ms patterns wordlist fill pick]
-  (try
-    (clojail/thunk-timeout (fn [] (solve patterns wordlist fill pick)) ms)
-    (catch Exception e [false 0 patterns])))
 
 (defn -bench
   [fill pick grid]
