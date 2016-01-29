@@ -73,7 +73,7 @@
       (doall (line-seq rdr))))) ;; doall needed to realize (not lazy) all lines in buffer
 
 (defn hash-wordlist
-  ""
+  "Puts every word in a map with the proper word length as key."
   [wordlist]
   (reduce (fn [r w]
            (let [key (-> (count w) str keyword)]
@@ -94,7 +94,7 @@
   [grid]
   (map #(.replace % " " "") grid))
 
-                                        ;source http://stackoverflow.com/questions/3262195/compact-clojure-code-for-regular-expression-matches-and-their-position-in-string
+;;source http://stackoverflow.com/questions/3262195/compact-clojure-code-for-regular-expression-matches-and-their-position-in-string
 (defn re-pos
   "Finds matching regex and returns them with their respective position"
   [re s]
@@ -153,15 +153,28 @@
         parted (partition-by :x sorted)]
     (map #(let [res (reduce (fn [a b]
                               (let [pos (:y b)
-                                    s (str (subs a 0 pos) (:word b) (subs a (+ pos (:length b))))]
+                                    s (if (not= (count (:word b)) 0)
+                                        (str (subs a 0 pos) (:word b) (subs a (+ pos (:length b))))
+                                        (apply str (seq (char-array (:length b) \#))))]
                                 s)) (nth grid (:x (first %)))  %)]
             (apply str (interpose " " res))) parted)))
 
-(defn solve-with-timeout
-  [ms patterns wordlist fill pick]
-  (try
-    (clojail/thunk-timeout (fn [] (solve patterns wordlist fill pick)) ms)
-    (catch Exception e [false 0 patterns])))
+;; (defn print-grid
+;;   "Grid needs to be formatted."
+;;   [patterns grid]
+;;   (letfn [(get-word [p]
+;;            (if (not= (count (:word p)) 0)
+;;              (:word p)
+;;              (apply str (seq (char-array (:length p) \#)))))
+;;           (insert-pattern [grid p]
+;;             (let [word (get-word p)
+;;                   dir (:direction p)
+;;                   coll (if (= dir across)
+;;                          (nth gird (:x p))
+;;                          (nth (get-columns grid) (:y p)))]
+;;               ))]
+;;     (reduce (fn [gird p]
+;;               (insert-pattern grid p)) grid patterns)))
 
 ;;;;;;;Program;;;;;;;
 
@@ -329,9 +342,7 @@
           (nil? patterns))
     true ;; last case every pattern has been solved
     (if (or (= fill most-constrained)
-            (= pick dynamic)
-            ;;(= pick probe)
-            )
+            (= pick dynamic))
       ;;      (every? #(> (:freedom %) 0) patterns)
       true
       (every? true? (map #(contains-word (re-pattern (:regex %)) (words-with-length (:length %) wordlist)) patterns)))))
@@ -377,7 +388,14 @@
     (if-not arc-consistent?
       (throw (Exception. "Not arc-consistent seeding."))
       (let [final-p (assoc random-max-p :regex random-w :word random-w :freedom 0)]
+        (println final-p)
         (update-patterns patterns (cons final-p (:p updated-p)))))))
+
+(defn solve-with-timeout
+  [ms patterns wordlist fill pick]
+  (try
+    (clojail/thunk-timeout (fn [] (solve patterns wordlist fill pick)) ms)
+    (catch Exception e [false 0 patterns])))
 
 (defn -main
   [fill pick grid]
@@ -404,3 +422,21 @@
             (if s?
               (println "Bt:" b)
               (println p))))))
+
+(defn print-grid
+  [patterns grid]
+  (doseq [line (patterns-into-grid patterns grid)]
+    (println line)))
+
+(defn -hypo
+  []
+  (let [wordlist (-> (read-wordlist) hash-wordlist)
+        grid (format-grid grid-5x5)
+        patterns (create-patterns grid)
+        ;;seeded-p (seed patterns most-constrained dynamic wordlist)
+        ]
+;;    (println seeded-p)
+    (for [i (range 0 50)
+          pick [first-n random]]
+      (let [[s? b p] (time (solve-with-timeout 60000 patterns wordlist most-constrained pick))]
+        [pick b]))))
