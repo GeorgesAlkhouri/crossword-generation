@@ -1,15 +1,11 @@
 (ns crossword.core
   (:gen-class))
 (require '[clojure.test]
-         '[criterium.core :as criterium]
-         '[clojure.java.io :as io]
          '[clojure.string :as string]
-         '[clojail.core :as clojail])
-
-(defrecord Pattern [x y direction length freedom regex word])
-
-(def ^:const across true)
-(def ^:const down false)
+         '[clojail.core :as clojail]
+         '[crossword.wordlist :as wordlist]
+         '[crossword.pattern :as pattern]
+         '[crossword.grid :as grid])
 
 (def ^:const most-constrained "most-constrained")
 (def ^:const ratio "ratio")
@@ -17,176 +13,15 @@
 (def ^:const random "random")
 (def ^:const dynamic "dynamic")
 
-(def ^:const grid-5x5  ["# # _ _ _"
-                        "# _ _ _ _"
-                        "_ _ _ _ _"
-                        "_ _ _ _ #"
-                        "_ _ _ # #"])
-
-(def ^:const grid-9x9 ["# # # _ _ _ # # #"
-                       "# # _ _ _ _ _ # #"
-                       "# _ _ _ _ _ _ _ #"
-                       "_ _ _ _ # _ _ _ _"
-                       "_ _ _ # # # _ _ _"
-                       "_ _ _ _ # _ _ _ _"
-                       "# _ _ _ _ _ _ _ #"
-                       "# # _ _ _ _ _ # #"
-                       "# # # _ _ _ # # #"])
-
-(def ^:const grid-13x13 ["_ _ _ _ # _ _ _ # _ _ _ _"
-                         "_ _ _ _ # _ _ _ # _ _ _ _"
-                         "_ _ _ _ # _ _ _ # _ _ _ _"
-                         "_ _ _ _ _ _ # _ _ _ _ _ _"
-                         "# # # _ _ _ # _ _ _ # # #"
-                         "_ _ _ _ _ # # # _ _ _ _ _"
-                         "_ _ _ # # # # # # # _ _ _"
-                         "_ _ _ _ _ # # # _ _ _ _ _"
-                         "# # # _ _ _ # _ _ _ # # #"
-                         "_ _ _ _ _ _ # _ _ _ _ _ _"
-                         "_ _ _ _ # _ _ _ # _ _ _ _"
-                         "_ _ _ _ # _ _ _ # _ _ _ _"
-                         "_ _ _ _ # _ _ _ # _ _ _ _"])
-
-(def ^:const grid-15x15 ["_ _ _ _ _ _ # _ _ _ _ _ _ _ _"
-                         "# _ # _ # _ # _ # _ # _ # _ #"
-                         "_ _ _ _ _ _ _ _ _ _ # _ _ _ _"
-                         "# _ # _ # _ # _ # _ # _ # _ #"
-                         "_ _ _ _ _ _ _ _ # _ _ _ _ _ _"
-                         "# # # _ # _ # _ # _ # # # _ #"
-                         "_ _ _ _ # # # _ _ _ _ _ _ _ _"
-                         "# _ # _ # _ # _ # _ # _ # _ #"
-                         "_ _ _ _ _ _ _ _ # # # _ _ _ _"
-                         "# _ # # # _ # _ # _ # _ # # #"
-                         "_ _ _ _ _ _ # _ _ _ _ _ _ _ _"
-                         "# _ # _ # _ # _ # _ # _ # _ #"
-                         "_ _ _ _ # _ _ _ _ _ _ _ _ _ _"
-                         "# _ # _ # _ # _ # _ # _ # _ #"
-                         "_ _ _ _ _ _ _ _ # _ _ _ _ _ _"])
-
-;;;;;;;Helper;;;;;;;
-
-(defn read-wordlist
-  "Reads the provided words list into a sequence."
-  []
-  (let [path (-> "knuth_words_all_lower_sorted" io/resource io/file)]
-    (with-open [rdr (io/reader path)]
-      (doall (line-seq rdr))))) ;; doall needed to realize (not lazy) all lines in buffer
-
-(defn hash-wordlist
-  "Puts every word in a map with the proper word length as key."
-  [wordlist]
-  (reduce (fn [r w]
-           (let [key (-> (count w) str keyword)]
-             (if (nil? (key r))
-               (assoc r key [w])
-               (let [old-r (key r)
-                     new-r (conj old-r w)]
-                 (assoc r key new-r))))) {} wordlist))
-
-(defn get-columns
-  "Get a list of columns from the grid."
-  [grid]
-  (let [count (count grid)]
-    (map #(apply str %) (partition count (apply interleave grid)))))
-
-(defn format-grid
-  "Removes space chars from the grid strings."
-  [grid]
-  (map #(.replace % " " "") grid))
-
-;;source http://stackoverflow.com/questions/3262195/compact-clojure-code-for-regular-expression-matches-and-their-position-in-string
-(defn re-pos
-  "Finds matching regex and returns them with their respective position"
-  [re s]
-  (loop [m (re-matcher re s)
-         res {}]
-    (if (.find m)
-      (recur m (assoc res (.start m) (.group m)))
-      res)))
-
-(defn map-patterns
-  "Maps positions, directions and lengths to patterns."
-  [patterns direction]
-  (apply concat (map-indexed (fn ;; concat because of nested map, otherwise it would create nested list.
-                               [idx itm]
-                               (map (fn [p]
-                                      (let [pos (first p)
-                                            len (count (second p))]
-                                        (if (= direction across)
-                                          (->Pattern idx pos direction len 0 "" "")
-                                          (->Pattern pos idx direction len 0 "" "")))) itm))
-                             patterns)))
-
-(defn pattern->regex
-  "Creates a regex from a patter and the corresponding grid."
-  [pattern grid]
-  (letfn [(extract [start end line]
-            (let [letters (subs line start (+ start end))]
-              letters))
-          (parse [letters]
-            (-> (apply str (map (fn [c]
-                                  (if (= \_ c)
-                                    "[a-z]"
-                                    (str c))) letters)) re-pattern))]
-    (if (= (:direction pattern) across)
-      (-> (extract (:y pattern) (:length pattern) (nth grid (:x pattern))) parse)
-      (-> (extract (:x pattern) (:length pattern) (nth (get-columns grid) (:y pattern))) parse))))
-
-(defn create-patterns
-  "Determines all patterns from a fresh grid. Only execudes one time after start."
-  [grid]
-  (let [horizontal grid
-        vertical (get-columns grid)
-        patterns-h (map #(re-pos #"_+" %) horizontal)
-        patterns-v (map #(re-pos #"_+" %) vertical)
-        mapped-p-h (map-patterns patterns-h across)
-        mapped-p-v (map-patterns patterns-v down)
-        patterns ( map (fn [p]
-                         (let [regex (pattern->regex p grid)]
-                           (assoc p :regex (str regex)))) (concat mapped-p-h mapped-p-v))]
-    (set (filter #(not= (:length %) 1) patterns))))
-
-(defn patterns-into-grid
-  [patterns grid]
-  (let [removed (remove #(= down (:direction %)) patterns)
-        sorted (sort-by :x removed)
-        parted (partition-by :x sorted)]
-    (map #(let [res (reduce (fn [a b]
-                              (let [pos (:y b)
-                                    s (if (not= (count (:word b)) 0)
-                                        (str (subs a 0 pos) (:word b) (subs a (+ pos (:length b))))
-                                        (apply str (seq (char-array (:length b) \#))))]
-                                s)) (nth grid (:x (first %)))  %)]
-            (apply str (interpose " " res))) parted)))
-
-;; (defn print-grid
-;;   "Grid needs to be formatted."
-;;   [patterns grid]
-;;   (letfn [(get-word [p]
-;;            (if (not= (count (:word p)) 0)
-;;              (:word p)
-;;              (apply str (seq (char-array (:length p) \#)))))
-;;           (insert-pattern [grid p]
-;;             (let [word (get-word p)
-;;                   dir (:direction p)
-;;                   coll (if (= dir across)
-;;                          (nth gird (:x p))
-;;                          (nth (get-columns grid) (:y p)))]
-;;               ))]
-;;     (reduce (fn [gird p]
-;;               (insert-pattern grid p)) grid patterns)))
-
-;;;;;;;Program;;;;;;;
-
 (defn pattern->rect
   "Maps a pattern to its rectangle representation."
   [pattern]
   (let [left (:y pattern)
         top (:x pattern)
-        right (if (= (:direction pattern) across)
+        right (if (= (:direction pattern) pattern/across)
                 (- (+ left (:length pattern)) 1)
                 left)
-        bottom (if (= (:direction pattern) down)
+        bottom (if (= (:direction pattern) pattern/down)
                  (- (+ top (:length pattern)) 1)
                  top)]
     {:left left :top top :right right :bottom bottom}))
@@ -196,12 +31,12 @@
   [patterns pattern]
   (let [a (pattern->rect pattern)]
     (filter #(let [b (pattern->rect %)]
-               (and
+              (and
                 (not (or (> (:left b) (:right a))
                          (< (:right b) (:left a))
                          (> (:top b) (:bottom a))
                          (< (:bottom b) (:top a))))
-                (not= a b))) patterns) ))
+                (not= a b))) patterns)))
 
 (defn match-words
   ""
@@ -225,12 +60,12 @@
 
 (defn update-regex
   [pattern affected-patterns]
-  (let [temp-regex-pattern (string/replace (:regex pattern)  #"\[a\-z\]" "*") ]
-    (map #(let [temp-regex (string/replace (:regex %)  #"\[a\-z\]" "*")
-                updated-regex (if (= (:direction pattern) across)
+  (let [temp-regex-pattern (string/replace (:regex pattern) #"\[a\-z\]" "*")]
+    (map #(let [temp-regex (string/replace (:regex %) #"\[a\-z\]" "*")
+                updated-regex (if (= (:direction pattern) pattern/across)
                                 (replace-string temp-regex (str (nth temp-regex-pattern (- (:y %) (:y pattern)))) (- (:x pattern) (:x %)))
                                 (replace-string temp-regex (str (nth temp-regex-pattern (- (:x %) (:x pattern)))) (- (:y pattern) (:y %))))]
-            (assoc % :regex (string/replace updated-regex #"\*" "[a-z]"))) affected-patterns)))
+           (assoc % :regex (string/replace updated-regex #"\*" "[a-z]"))) affected-patterns)))
 
 (defn pattern-equal?
   "Compares patterns without considering regex and freedom."
@@ -243,8 +78,8 @@
 (defn pattern-replace
   [patterns replace]
   (map #(if (pattern-equal? replace %)
-          replace
-          %) patterns))
+         replace
+         %) patterns))
 
 (defn update-patterns
   [patterns replacements]
@@ -252,8 +87,8 @@
             (pattern-replace p r)) patterns replacements))
 
 (defmulti fill-strategy
-  ""
-  (fn [data] (:fill-strategy data)))
+          ""
+          (fn [data] (:fill-strategy data)))
 
 (defn update-freedom
   "Updates freedom of patterns with a given fill strategy."
@@ -291,12 +126,12 @@
   "Fill a pattern for a given fill/delete strategy f. Chooses the most constrained pattern. "
   [fill patterns wordlist]
   (let [rated (update-freedom fill patterns wordlist)
-        most-constr (apply min-key #(:freedom %) rated)] ;;dirty! change it, so that you can abstract from most-constraint to any pick strat.
+        most-constr (apply min-key #(:freedom %) rated)]    ;;dirty! change it, so that you can abstract from most-constraint to any pick strat.
     most-constr))
 
 (defmulti pick-strategy
-  ""
-  (fn [data] (:pick-strategy data)))
+          ""
+          (fn [data] (:pick-strategy data)))
 
 (defmethod pick-strategy :first-n
   [data]
@@ -306,41 +141,41 @@
   [data]
   (let [matches (match-words (:regex data) (:words data))]
     (when (not (empty? matches))
-      (-> (repeatedly 10 #(rand-nth matches)) distinct))));; TODO, delete word after choosing it.
+      (-> (repeatedly 10 #(rand-nth matches)) distinct))))  ;; TODO, delete word after choosing it.
 
 (defmethod pick-strategy :dynamic
   [data]
   (let [random-pick (pick-strategy {:pick-strategy :random
-                                    :regex (:regex data)
-                                    :words (:words data)})
+                                    :regex         (:regex data)
+                                    :words         (:words data)})
         pattern (:pattern data)
         patterns (:patterns data)
         wordlist (:wordlist data)
         words (map #(let [p' (propagate-pattern most-constrained pattern patterns % wordlist)
                           freedom (reduce *' (map :freedom (:p p')))]
-                      {:w % :f freedom}) random-pick)]
+                     {:w % :f freedom}) random-pick)]
     (map :w (reverse (sort-by :f words)))))
 
 (defn pick-words
-  "Picks possible words with a picking strategy." 
+  "Picks possible words with a picking strategy."
   [strategy pattern patterns wordlist]
   (let [words (cond
-               (= strategy dynamic) (pick-strategy {:pick-strategy :dynamic
-                                                    :regex (-> (:regex pattern) re-pattern)
-                                                    :words (words-with-length (:length pattern) wordlist)
-                                                    :wordlist wordlist
-                                                    :pattern pattern
-                                                    :patterns patterns})
-               :else (pick-strategy {:pick-strategy (keyword strategy)
-                                     :regex (-> (:regex pattern) re-pattern)
-                                     :words (words-with-length (:length pattern) wordlist)}))]
+                (= strategy dynamic) (pick-strategy {:pick-strategy :dynamic
+                                                     :regex         (-> (:regex pattern) re-pattern)
+                                                     :words         (words-with-length (:length pattern) wordlist)
+                                                     :wordlist      wordlist
+                                                     :pattern       pattern
+                                                     :patterns      patterns})
+                :else (pick-strategy {:pick-strategy (keyword strategy)
+                                      :regex         (-> (:regex pattern) re-pattern)
+                                      :words         (words-with-length (:length pattern) wordlist)}))]
     words))
 
 (defn arc-consistency?
   [fill pick patterns wordlist]
   (if (or (empty? patterns)
           (nil? patterns))
-    true ;; last case every pattern has been solved
+    true                                                    ;; last case every pattern has been solved
     (if (or (= fill most-constrained)
             (= pick dynamic))
       ;;      (every? #(> (:freedom %) 0) patterns)
@@ -354,7 +189,7 @@
               (let [next-pattern (fill-pattern fill patterns wordlist) ;; 1. Delete tuple from list with lowest freedo
                     possible-words (pick-words pick next-pattern patterns wordlist) ;; 2. Instantiate pattern to grid
                     ]
-                (let [[s? b s-p] (reduce (fn [interim-result word]                                           
+                (let [[s? b s-p] (reduce (fn [interim-result word]
                                            (if-not (first interim-result)
                                              (let [updated (propagate-pattern fill next-pattern patterns word wordlist) ;; 3. Propagate instantiation to affected patterns
                                                    arc-consistent (arc-consistency? fill pick (:p updated) wordlist) ;; 4. Check for arc-consistency
@@ -364,12 +199,12 @@
                                                        ps (:p updated)
                                                        u (update-patterns patterns ps)]
                                                    (solve-rec
-                                                    (remove #(pattern-equal? next-pattern %) u)
-                                                    (assoc wordlist
-                                                      (-> (count w) str keyword)
-                                                      (remove #(= w %) (words-with-length (count w) wordlist)))
-                                                    (second interim-result)
-                                                    (cons (assoc next-pattern :word w) solved)))
+                                                     (remove #(pattern-equal? next-pattern %) u)
+                                                     (assoc wordlist
+                                                       (-> (count w) str keyword)
+                                                       (remove #(= w %) (words-with-length (count w) wordlist)))
+                                                     (second interim-result)
+                                                     (cons (assoc next-pattern :word w) solved)))
                                                  [false back-tracks solved]))
                                              interim-result)) [false back-tracks solved] possible-words)
                       b' (if-not s? (inc b) b)]
@@ -382,7 +217,7 @@
   (let [max-length (-> (apply max-key #(:length %) patterns) :length)
         filtered-p (filter #(= max-length (:length %)) patterns)
         random-max-p (-> filtered-p shuffle first)
-        random-w (-> (words-with-length (:length random-max-p) wordlist) shuffle first);; FIXME: Check for nil return from wordlist
+        random-w (-> (words-with-length (:length random-max-p) wordlist) shuffle first) ;; FIXME: Check for nil return from wordlist
         updated-p (propagate-pattern fill random-max-p patterns random-w wordlist)
         arc-consistent? (arc-consistency? fill pick (:p updated-p) wordlist)]
     (if-not arc-consistent?
@@ -400,42 +235,42 @@
 (defn -main
   [fill pick grid]
   (let []
-    (let [wordlist (-> (read-wordlist) hash-wordlist)
-          g' (format-grid grid)
-          patterns (create-patterns g')
+    (let [wordlist (-> (wordlist/read-wordlist) wordlist/hash-wordlist)
+          g' (grid/format-grid grid)
+          patterns (pattern/create-patterns g')
           seeded-p (seed patterns fill pick wordlist)
           res (solve seeded-p wordlist fill pick)]
       (println "Backtacks: " (second res))
       (if-not (nil? res)
-              (doseq [line (patterns-into-grid (last res) g')]
+        (doseq [line (grid/patterns-into-grid (last res) g')]
           (println line))
         (println "Not solvable.")))))
 
 (defn -bench
   [fill pick grid]
-  (let [wordlist (-> (read-wordlist) hash-wordlist)
-        g (format-grid grid)
-        p (create-patterns g)]
-        (for [i (range 0 40)]
-          (let [seeded-p (seed p fill pick wordlist)
-                [s? b p] (time (solve-with-timeout 60000 seeded-p wordlist fill pick))]
-            (if s?
-              (println "Bt:" b)
-              (println p))))))
+  (let [wordlist (-> (wordlist/read-wordlist) wordlist/hash-wordlist)
+        g (grid/format-grid grid)
+        p (pattern/create-patterns g)]
+    (for [i (range 0 40)]
+      (let [seeded-p (seed p fill pick wordlist)
+            [s? b p] (time (solve-with-timeout 60000 seeded-p wordlist fill pick))]
+        (if s?
+          (println "Bt:" b)
+          (println p))))))
 
 (defn print-grid
   [patterns grid]
-  (doseq [line (patterns-into-grid patterns grid)]
+  (doseq [line (grid/patterns-into-grid patterns grid)]
     (println line)))
 
 (defn -hypo
   []
-  (let [wordlist (-> (read-wordlist) hash-wordlist)
-        grid (format-grid grid-5x5)
-        patterns (create-patterns grid)
+  (let [wordlist (-> (wordlist/read-wordlist) wordlist/hash-wordlist)
+        grid (grid/format-grid grid/grid-5x5)
+        patterns (pattern/create-patterns grid)
         ;;seeded-p (seed patterns most-constrained dynamic wordlist)
         ]
-;;    (println seeded-p)
+    ;;    (println seeded-p)
     (for [i (range 0 50)
           pick [first-n random]]
       (let [[s? b p] (time (solve-with-timeout 60000 patterns wordlist most-constrained pick))]
