@@ -64,3 +64,8 @@
                                         (apply str (seq (char-array (:length b) \#))))]
                                 s)) (nth grid (:x (first %))) %)]
            (apply str (interpose " " res))) parted)))
+
+(defn print-grid
+  [patterns grid]
+  (doseq [line (patterns-into-grid patterns grid)]
+    (println line)))

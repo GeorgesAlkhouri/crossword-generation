@@ -18,3 +18,8 @@
                 (let [old-r (key r)
                       new-r (conj old-r w)]
                   (assoc r key new-r))))) {} wordlist))
+
+(defn words-with-length
+  ""
+  [length wordlist]
+  (-> (str length) keyword wordlist))

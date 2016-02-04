@@ -62,3 +62,11 @@
                         (let [regex (pattern->regex p grid)]
                           (assoc p :regex (str regex)))) (concat mapped-p-h mapped-p-v))]
     (set (filter #(not= (:length %) 1) patterns))))
+
+(defn pattern-equal?
+  "Compares patterns without considering regex and freedom."
+  [a b]
+  (and (= (:x a) (:x b))
+       (= (:y a) (:y b))
+       (= (:direction a) (:direction b))
+       (= (:length a) (:length b))))
