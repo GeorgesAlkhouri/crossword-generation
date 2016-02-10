@@ -130,7 +130,7 @@
             (let [words (words-with-length (count w) dict)]
               (some #(= w %) words)))
           (solve-grid [patterns wordlist fill pick]
-            (let [res (solve patterns wordlist fill pick)]
+            (let [res (generate patterns wordlist fill pick)]
               (if (nil? res)
                 false
                 (and (not (some false? (map #(word-legal? (:word %) wordlist) (last res))))

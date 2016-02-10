@@ -134,20 +134,20 @@
   [fill patterns wordlist]
   (map (fn [p]
          (let [regex (re-pattern (:regex p))
-               words (-> (str (:length p)) keyword wordlist)]
-           (assoc p
-             :freedom (fill-strategy {:fill-strategy (keyword fill) :regex regex :words words})))) patterns))
+               words (wordlist/words-with-length (:length p) wordlist)]
+           (assoc p :freedom
+                    (fill-strategy {:fill-strategy (keyword fill) :regex regex :words words})))) patterns))
 
 (defn propagate-pattern
-  ""
+  "Propagates a pattern to the grid. Updates freedom of intersecting patterns with a fill strategy."
   [fill pattern patterns word wordlist]
   (if (nil? word)
     nil
-    (let [affected-patterns (intersecting-patterns pattern patterns)
+    (let [intersect-patterns (intersecting-patterns pattern patterns)
           p (assoc pattern :regex word)
-          updated-patterns (update-regex p affected-patterns)
-          p' (update-freedom fill updated-patterns wordlist)]
-      {:p p' :w word})))
+          updated-patterns (update-regex p intersect-patterns)
+          updated-patterns' (update-freedom fill updated-patterns wordlist)]
+      {:p updated-patterns' :w word})))
 
 (defn fill-pattern
   "Fill a pattern for a given fill/delete strategy. Chooses the most constrained pattern. "
@@ -172,9 +172,9 @@
     words))
 
 (defn arc-consistency?
+  "Checks all patterns for solvability."
   [fill pick patterns wordlist]
-  (if (or (empty? patterns)
-          (nil? patterns))
+  (if (empty? patterns)
     true                                                    ;; last case every pattern has been solved
     (if (or (= fill most-constrained)
             (= pick dynamic))
@@ -182,37 +182,8 @@
       true
       (every? true? (map #(contains-word? (re-pattern (:regex %)) (wordlist/words-with-length (:length %) wordlist)) patterns)))))
 
-(defn solve [patterns wordlist fill pick]
-  (letfn [(solve-rec [patterns wordlist back-tracks solved]
-            (if (empty? patterns)
-              [true back-tracks solved]
-              (let [next-pattern (fill-pattern fill patterns wordlist) ;; 1. Delete tuple from list with lowest freedo
-                    possible-words (pick-words pick next-pattern patterns wordlist) ;; 2. Instantiate pattern to grid
-                    ]
-                (let [[s? b s-p] (reduce (fn [interim-result word]
-                                           (if-not (first interim-result)
-                                             (let [updated (propagate-pattern fill next-pattern patterns word wordlist) ;; 3. Propagate instantiation to affected patterns
-                                                   arc-consistent (arc-consistency? fill pick (:p updated) wordlist) ;; 4. Check for arc-consistency
-                                                   ]
-                                               (if arc-consistent
-                                                 (let [w (:w updated)
-                                                       ps (:p updated)
-                                                       u (replace-patterns ps patterns)]
-                                                   (solve-rec
-                                                     (remove #(pattern/pattern-equal? next-pattern %) u)
-                                                     (assoc wordlist
-                                                       (-> (count w) str keyword)
-                                                       (remove #(= w %) (wordlist/words-with-length (count w) wordlist)))
-                                                     (second interim-result)
-                                                     (cons (assoc next-pattern :word w) solved)))
-                                                 [false back-tracks solved]))
-                                             interim-result)) [false back-tracks solved] possible-words)
-                      b' (if-not s? (inc b) b)]
-                  [s? b' s-p]))))]
-    (solve-rec patterns wordlist 0 #{})))
-
-(defn seed
-  ""
+(defn seed-patterns
+  "Determines a pattern with max length and fills it with a word of that length."
   [patterns fill pick wordlist]
   (let [max-length (-> (apply max-key #(:length %) patterns) :length)
         filtered-p (filter #(= max-length (:length %)) patterns)
@@ -225,34 +196,70 @@
       (let [final-p (assoc random-max-p :regex random-w :word random-w :freedom 0)]
         (replace-patterns (cons final-p (:p updated-p)) patterns)))))
 
-(defn solve-with-timeout
+(defn generate [patterns wordlist fill pick]
+  "Generates a crossword grid. If all given patterns are solved the grid is generated.
+  If not, the next pattern will be chosen and an appropriate word will be filled in the pattern.
+  If no word could match the next pattern a backtrack step will be applied
+  and another word will be inserted in the previous pattern."
+  (letfn [(generate-rec [patterns wordlist back-tracks solved]
+            (if (empty? patterns)
+              [true back-tracks solved]
+              (let [next-pattern (fill-pattern fill patterns wordlist) ;; 1. Delete tuple from list with lowest freedo
+                    possible-words (pick-words pick next-pattern patterns wordlist) ;; 2. Instantiate pattern to grid
+                    [s? b s-p] (reduce (fn [interim-result word]
+                                         (if-not (first interim-result)
+                                           (let [updated (propagate-pattern fill next-pattern patterns word wordlist) ;; 3. Propagate instantiation to affected patterns
+                                                 arc-consistent (arc-consistency? fill pick (:p updated) wordlist) ;; 4. Check for arc-consistency
+                                                 ]
+                                             (if arc-consistent
+                                               (let [w (:w updated)
+                                                     ps (:p updated)
+                                                     u (replace-patterns ps patterns)]
+                                                 (generate-rec
+                                                   (remove #(pattern/pattern-equal? next-pattern %) u)
+                                                   (assoc wordlist
+                                                     (-> (count w) str keyword)
+                                                     (remove #(= w %) (wordlist/words-with-length (count w) wordlist)))
+                                                   (second interim-result)
+                                                   (cons (assoc next-pattern :word w) solved)))
+                                               [false back-tracks solved]))
+                                           interim-result)) [false back-tracks solved] possible-words)
+                    b' (if-not s? (inc b) b)]
+                [s? b' s-p])))]
+    (generate-rec patterns wordlist 0 #{})))
+
+(defn generate-with-timeout
+  "Cancels crossword generation after a period of time and throws an exception."
   [ms patterns wordlist fill pick]
   (try
-    (clojail/thunk-timeout (fn [] (solve patterns wordlist fill pick)) ms)
-    (catch Exception e [false 0 patterns])))
+    (clojail/thunk-timeout (fn [] (generate patterns wordlist fill pick)) ms)
+    (catch Exception _
+      [false 0 patterns])))
 
-(defn -main
-  [fill pick grid]
-  (let []
-    (let [wordlist (-> (wordlist/read-wordlist) wordlist/hash-wordlist)
-          g' (grid/format-grid grid)
-          patterns (pattern/create-patterns g')
-          seeded-p (seed patterns fill pick wordlist)
-          res (solve seeded-p wordlist fill pick)]
-      (println "Backtacks: " (second res))
-      (if-not (nil? res)
-        (doseq [line (grid/patterns-into-grid (last res) g')]
-          (println line))
-        (println "Not solvable.")))))
+;; Convenient functions
 
-(defn -bench
+(defn generate-crossword
+  "Seeds initial grid and generates a filled crossword grid."
   [fill pick grid]
   (let [wordlist (-> (wordlist/read-wordlist) wordlist/hash-wordlist)
         g (grid/format-grid grid)
-        p (pattern/create-patterns g)]
-    (for [i (range 0 40)]
-      (let [seeded-p (seed p fill pick wordlist)
-            [s? b p] (time (solve-with-timeout 60000 seeded-p wordlist fill pick))]
+        patterns (pattern/create-patterns g)
+        seeded-p (seed-patterns patterns fill pick wordlist)
+        [s? b p] (generate seeded-p wordlist fill pick)]
+    (println "Backtacks: " b)
+    (if s?
+      (doseq [line (grid/patterns-into-grid p g)]
+        (println line))
+      (println "Could not be generated."))))
+
+(defn benchmark-generation
+  [fill pick grid]
+  (let [wordlist (-> (wordlist/read-wordlist) wordlist/hash-wordlist)
+        g (grid/format-grid grid)
+        patterns (pattern/create-patterns g)]
+    (for [_ (range 0 40)]
+      (let [seeded-p (seed-patterns patterns fill pick wordlist)
+            [s? b p] (time (generate-with-timeout 60000 seeded-p wordlist fill pick))]
         (if s?
-          (println "Bt:" b)
-          (println p))))))
+          (println "Backtracks: " b)
+          (println "Could not be generated."))))))
