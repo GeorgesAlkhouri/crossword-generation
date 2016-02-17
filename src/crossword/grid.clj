@@ -52,6 +52,7 @@
   [grid]
   (map #(.replace % " " "") grid))
 
+;; FIXME: Does not work with all grids
 (defn patterns-into-grid
   [patterns grid]
   (let [removed (remove #(= pattern/down (:direction %)) patterns)

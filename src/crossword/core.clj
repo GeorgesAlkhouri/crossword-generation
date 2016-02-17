@@ -7,6 +7,8 @@
          '[crossword.pattern :as pattern]
          '[crossword.grid :as grid])
 
+(def ^:const wordlist-name "knuth_words_all_lower_sorted")
+
 (def ^:const most-constrained "most-constrained")
 (def ^:const ratio "ratio")
 (def ^:const first-n "first-n")
@@ -192,7 +194,8 @@
         updated-p (propagate-pattern fill random-max-p patterns random-w wordlist)
         arc-consistent? (arc-consistency? fill pick (:p updated-p) wordlist)]
     (if-not arc-consistent?
-      (throw (Exception. "Not arc-consistent seeding."))
+      ;;(throw (Exception. "Not arc-consistent seeding."))
+      (seed-patterns patterns fill pick wordlist)
       (let [final-p (assoc random-max-p :regex random-w :word random-w :freedom 0)]
         (replace-patterns (cons final-p (:p updated-p)) patterns)))))
 
@@ -241,7 +244,7 @@
 (defn generate-crossword
   "Seeds initial grid and generates a filled crossword grid."
   [fill pick grid]
-  (let [wordlist (-> (wordlist/read-wordlist) wordlist/hash-wordlist)
+  (let [wordlist (-> (wordlist/read-wordlist wordlist-name) wordlist/map-wordlist)
         g (grid/format-grid grid)
         patterns (pattern/create-patterns g)
         seeded-p (seed-patterns patterns fill pick wordlist)
@@ -254,12 +257,23 @@
 
 (defn benchmark-generation
   [fill pick grid]
-  (let [wordlist (-> (wordlist/read-wordlist) wordlist/hash-wordlist)
+  (let [wordlist (-> (wordlist/read-wordlist wordlist-name) wordlist/map-wordlist)
         g (grid/format-grid grid)
         patterns (pattern/create-patterns g)]
     (for [_ (range 0 40)]
       (let [seeded-p (seed-patterns patterns fill pick wordlist)
-            [s? b p] (time (generate-with-timeout 60000 seeded-p wordlist fill pick))]
+            [s? b _] (time (generate-with-timeout 60000 seeded-p wordlist fill pick))]
         (if s?
-          (println "Backtracks: " b)
-          (println "Could not be generated."))))))
+          b
+          -1)))))
+
+(defn benchmark-all
+  []
+  (for [fill (list most-constrained ratio)
+        pick (list first-n random dynamic)
+        grid (list grid/grid-5x5 grid/grid-9x9 grid/grid-13x13 grid/grid-15x15)]
+    (str "F: " fill " P: " pick " G: " (count grid) " B: " (clojure.string/join ", " (benchmark-generation fill pick grid)))))
+
+(defn -main
+  [& args]
+  (println (benchmark-all)))

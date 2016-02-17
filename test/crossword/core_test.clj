@@ -25,8 +25,8 @@
 (def test-grid-letters ["# a p _ "])
 
 (deftest test-hash-wordlist
-  (is (= (hash-wordlist '()) {}))
-  (is (= (hash-wordlist '("a" "ab" "abc" "aa" "bb" "c")) {:1 '("a" "c"), :2 '("ab" "aa" "bb"), :3 '("abc")}))) ;; order will be respected
+  (is (= (map-wordlist '()) {}))
+  (is (= (map-wordlist '("a" "ab" "abc" "aa" "bb" "c")) {:1 '("a" "c"), :2 '("ab" "aa" "bb"), :3 '("abc")}))) ;; order will be respected
 
 (deftest create-init-patterns
   (is (= (create-patterns (format-grid grid-5x5)) (set (list (->Pattern 0 2 across 3 0 "[a-z][a-z][a-z]" "")
@@ -136,10 +136,10 @@
                 (and (not (some false? (map #(word-legal? (:word %) wordlist) (last res))))
                      (= (count patterns) (count (last res)))))))
           (test-grids [fill pick]
-            (is (= true (solve-grid (-> grid-5x5 format-grid create-patterns) (-> (read-wordlist) hash-wordlist) fill pick)))
-            (is (= true (solve-grid (-> grid-9x9 format-grid create-patterns) (-> (read-wordlist) hash-wordlist) fill pick)))
-            ;;(is (= true (solve-grid (-> test-grid-hard format-grid create-patterns) (-> (read-wordlist) hash-wordlist) fill pick)))
-            (is (= true (solve-grid (-> grid-15x15 format-grid create-patterns) (-> (read-wordlist) hash-wordlist) fill pick))))]
+            (is (= true (solve-grid (-> grid-5x5 format-grid create-patterns) (-> (read-wordlist wordlist-name) map-wordlist) fill pick)))
+            (is (= true (solve-grid (-> grid-9x9 format-grid create-patterns) (-> (read-wordlist wordlist-name) map-wordlist) fill pick)))
+            ;;(is (= true (solve-grid (-> grid-13x13 format-grid create-patterns) (-> (read-wordlist) hash-wordlist) fill pick)))
+            (is (= true (solve-grid (-> grid-15x15 format-grid create-patterns) (-> (read-wordlist wordlist-name) map-wordlist) fill pick))))]
     (test-grids most-constrained first-n)
     (test-grids most-constrained random)
     (test-grids most-constrained dynamic)
