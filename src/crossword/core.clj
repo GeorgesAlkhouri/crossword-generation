@@ -109,8 +109,7 @@
 (defmethod pick-strategy :random
   [data]
   (let [matches (match-words (:regex data) (:words data))]
-    (when (not (empty? matches))
-      (-> (repeatedly 10 #(rand-nth matches)) distinct))))  ;; TODO: delete word after choosing it.
+    (-> (repeatedly 10 #(rand-nth matches)) distinct)))     ;; TODO: delete word after choosing it.
 
 (declare propagate-pattern)
 
@@ -119,13 +118,11 @@
   (let [random-pick (pick-strategy {:pick-strategy :random
                                     :regex         (:regex data)
                                     :words         (:words data)})
-        pattern (:pattern data)
-        patterns (:patterns data)
-        wordlist (:wordlist data)
-        words (map #(let [p' (propagate-pattern most-constrained pattern patterns % wordlist)
+        words (map #(let [p' (propagate-pattern most-constrained (:pattern data) (:patterns data) % (:wordlist data))
                           freedom (reduce *' (map :freedom (:p p')))]
-                     {:w % :f freedom}) random-pick)]
-    (map :w (reverse (sort-by :f words)))))
+                     {:w % :f freedom}) random-pick)
+        words' (filter #(> (:f %) 0) words)]
+    (map :w (reverse (sort-by :f words')))))
 
 (defmethod pick-strategy :prob
   [data]
@@ -152,11 +149,17 @@
       {:p updated-patterns' :w word})))
 
 (defn fill-pattern
-  "Fill a pattern for a given fill/delete strategy. Chooses the most constrained pattern. "
+  "Parameter: patterns - All patterns to be solved.
+  Fill a pattern for a given fill strategy. Chooses the most constrained pattern (Smallest freedom value).
+  If fill strategy is 'most-constrained', checks for arc-consistency early to avoid unnecessary calculations."
   [fill patterns wordlist]
   (let [rated (update-freedom fill patterns wordlist)
-        most-constr (apply min-key #(:freedom %) rated)]    ;; TODO: dirty! change it, so that you can abstract from most-constraint to any pick strat.
-    most-constr))
+        most-constr (apply min-key #(:freedom %) rated)]
+    (if (= fill most-constrained)
+      (if (= (:freedom most-constr) 0)
+        nil
+        most-constr)
+      most-constr)))
 
 (defn pick-words
   "Picks possible words with a picking strategy."
@@ -180,7 +183,6 @@
     true                                                    ;; last case every pattern has been solved
     (if (or (= fill most-constrained)
             (= pick dynamic))
-      ;;      (every? #(> (:freedom %) 0) patterns)
       true
       (every? true? (map #(contains-word? (re-pattern (:regex %)) (wordlist/words-with-length (:length %) wordlist)) patterns)))))
 
@@ -207,28 +209,31 @@
   (letfn [(generate-rec [patterns wordlist back-tracks solved]
             (if (empty? patterns)
               [true back-tracks solved]
-              (let [next-pattern (fill-pattern fill patterns wordlist) ;; 1. Delete tuple from list with lowest freedo
-                    possible-words (pick-words pick next-pattern patterns wordlist) ;; 2. Instantiate pattern to grid
-                    [s? b s-p] (reduce (fn [interim-result word]
-                                         (if-not (first interim-result)
-                                           (let [updated (propagate-pattern fill next-pattern patterns word wordlist) ;; 3. Propagate instantiation to affected patterns
-                                                 arc-consistent (arc-consistency? fill pick (:p updated) wordlist) ;; 4. Check for arc-consistency
-                                                 ]
-                                             (if arc-consistent
-                                               (let [w (:w updated)
-                                                     ps (:p updated)
-                                                     u (replace-patterns ps patterns)]
-                                                 (generate-rec
-                                                   (remove #(pattern/pattern-equal? next-pattern %) u)
-                                                   (assoc wordlist
-                                                     (-> (count w) str keyword)
-                                                     (remove #(= w %) (wordlist/words-with-length (count w) wordlist)))
-                                                   (second interim-result)
-                                                   (cons (assoc next-pattern :word w) solved)))
-                                               [false back-tracks solved]))
-                                           interim-result)) [false back-tracks solved] possible-words)
-                    b' (if-not s? (inc b) b)]
-                [s? b' s-p])))]
+              (if-let [next-pattern (fill-pattern fill patterns wordlist)] ;; 1. Delete tuple from list with lowest freedom
+                (if-let [possible-words (pick-words pick next-pattern patterns wordlist)] ;; 2. Instantiate pattern to grid]
+                  (let [[s? b s-p] (reduce (fn [interim-result word]
+                                             (if-not (first interim-result)
+                                               (let [updated (propagate-pattern fill next-pattern patterns word wordlist) ;; 3. Propagate instantiation to affected patterns
+                                                     wordlist' (assoc wordlist
+                                                                 (-> (count (:w updated)) str keyword)
+                                                                 (remove #(= (:w updated) %) (wordlist/words-with-length (count (:w updated)) wordlist)))
+                                                     arc-consistent (arc-consistency? fill pick (:p updated) wordlist') ;; 4. Check for arc-consistency
+                                                     ]
+                                                 (if arc-consistent
+                                                   (let [w (:w updated)
+                                                         ps (:p updated)
+                                                         u (replace-patterns ps patterns)]
+                                                     (generate-rec
+                                                       (remove #(pattern/pattern-equal? next-pattern %) u)
+                                                       wordlist'
+                                                       (second interim-result)
+                                                       (cons (assoc next-pattern :word w) solved)))
+                                                   [false back-tracks solved]))
+                                               interim-result)) [false back-tracks solved] possible-words)
+                        b' (if-not s? (inc b) b)]
+                    [s? b' s-p])
+                  [false back-tracks solved])
+                [false back-tracks solved])))]
     (generate-rec patterns wordlist 0 #{})))
 
 (defn generate-with-timeout

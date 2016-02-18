@@ -68,7 +68,7 @@
   (is (= (fill-pattern "most-constrained" (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
                                                 (->Pattern 0 2 across 3 0 "[a-z]o[a-z]" "")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 2 "[a-z]o[a-z]" "")))
   (is (= (fill-pattern "most-constrained" (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
-                                                (->Pattern 0 2 across 3 0 "[a-z]ot" "")) {:3 '("cat" "dog" "cow")}) (->Pattern 0 2 across 3 0 "[a-z]ot" "")))
+                                                (->Pattern 0 2 across 3 0 "[a-z]ot" "")) {:3 '("cat" "dog" "cow")}) nil))
   (is (= (fill-pattern "most-constrained" (list (->Pattern 0 3 across 3 0 "[a-z][a-z][a-z]" "")
                                                 (->Pattern 0 2 across 3 0 "[a-z]o[a-z]" "")) {:3 '("cot" "dog" "cow")}) (->Pattern 0 2 across 3 3 "[a-z]o[a-z]" ""))))
 
@@ -79,8 +79,7 @@
          '()))
   (is (= (set (pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]o[a-z]" "") nil {:3 '("dog" "ape" "cot")}))
          #{"cot" "dog"}))
-  (is (= (set (pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]at" "") nil {:3 '("dog" "ape" "cot")}))
-         (set nil)))
+  (is (thrown? Exception (set (pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]at" "") nil {:3 '("dog" "ape" "cot")}))))
   ;; (is (= (pick-words "dynamic" (->Pattern 0 0 across 2 3 "[a-z][a-z]" "") (list (->Pattern 0 0 across 2 3 "[a-z][a-z]" "")
   ;;                                                                               (->Pattern 1 0 across 2 3 "[a-z][a-z]" "")
   ;;                                                                               (->Pattern 0 0 down 2 3 "[a-z][a-z]" "")
@@ -130,6 +129,7 @@
             (let [words (words-with-length (count w) dict)]
               (some #(= w %) words)))
           (solve-grid [patterns wordlist fill pick]
+            (println fill pick)
             (let [res (generate patterns wordlist fill pick)]
               (if (nil? res)
                 false
@@ -138,7 +138,7 @@
           (test-grids [fill pick]
             (is (= true (solve-grid (-> grid-5x5 format-grid create-patterns) (-> (read-wordlist wordlist-name) map-wordlist) fill pick)))
             (is (= true (solve-grid (-> grid-9x9 format-grid create-patterns) (-> (read-wordlist wordlist-name) map-wordlist) fill pick)))
-            ;;(is (= true (solve-grid (-> grid-13x13 format-grid create-patterns) (-> (read-wordlist) hash-wordlist) fill pick)))
+            ;;(is (= true (solve-grid (-> grid-13x13 format-grid create-patterns) (-> (read-wordlist wordlist-name) map-wordlist) fill pick)))
             (is (= true (solve-grid (-> grid-15x15 format-grid create-patterns) (-> (read-wordlist wordlist-name) map-wordlist) fill pick))))]
     (test-grids most-constrained first-n)
     (test-grids most-constrained random)
