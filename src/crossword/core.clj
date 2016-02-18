@@ -214,20 +214,15 @@
                   (let [[s? b s-p] (reduce (fn [interim-result word]
                                              (if-not (first interim-result)
                                                (let [updated (propagate-pattern fill next-pattern patterns word wordlist) ;; 3. Propagate instantiation to affected patterns
-                                                     wordlist' (assoc wordlist
-                                                                 (-> (count (:w updated)) str keyword)
-                                                                 (remove #(= (:w updated) %) (wordlist/words-with-length (count (:w updated)) wordlist)))
-                                                     arc-consistent (arc-consistency? fill pick (:p updated) wordlist') ;; 4. Check for arc-consistency
-                                                     ]
+                                                     wordlist' (wordlist/remove-word (:w updated) wordlist)
+                                                     arc-consistent (arc-consistency? fill pick (:p updated) wordlist')] ;; 4. Check for arc-consistency
                                                  (if arc-consistent
-                                                   (let [w (:w updated)
-                                                         ps (:p updated)
-                                                         u (replace-patterns ps patterns)]
+                                                   (let [u (replace-patterns (:p updated) patterns)]
                                                      (generate-rec
-                                                       (remove #(pattern/pattern-equal? next-pattern %) u)
+                                                       (pattern/remove-pattern next-pattern u)
                                                        wordlist'
                                                        (second interim-result)
-                                                       (cons (assoc next-pattern :word w) solved)))
+                                                       (cons (assoc next-pattern :word (:w updated)) solved)))
                                                    [false back-tracks solved]))
                                                interim-result)) [false back-tracks solved] possible-words)
                         b' (if-not s? (inc b) b)]

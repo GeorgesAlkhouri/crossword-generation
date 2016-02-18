@@ -23,3 +23,9 @@
   "Returns all words with the specified length from a word list."
   [length wordlist]
   (-> (str length) keyword wordlist))
+
+(defn remove-word
+  [word wordlist]
+  (assoc wordlist
+    (-> (count word) str keyword)
+    (remove #(= word %) (words-with-length (count word) wordlist))))

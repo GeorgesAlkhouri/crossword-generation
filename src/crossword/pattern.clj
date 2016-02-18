@@ -70,3 +70,7 @@
        (= (:y a) (:y b))
        (= (:direction a) (:direction b))
        (= (:length a) (:length b))))
+
+(defn remove-pattern
+  [pattern patterns]
+  (remove #(pattern-equal? pattern %) patterns))
