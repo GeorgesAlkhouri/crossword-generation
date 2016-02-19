@@ -79,7 +79,7 @@
          '()))
   (is (= (set (pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]o[a-z]" "") nil {:3 '("dog" "ape" "cot")}))
          #{"cot" "dog"}))
-  (is (thrown? Exception (set (pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]at" "") nil {:3 '("dog" "ape" "cot")}))))
+  ;;(is (thrown? Exception (set (pick-words "random" (->Pattern 0 0 across 3 0 "[a-z]at" "") nil {:3 '("dog" "ape" "cot")}))))
   ;; (is (= (pick-words "dynamic" (->Pattern 0 0 across 2 3 "[a-z][a-z]" "") (list (->Pattern 0 0 across 2 3 "[a-z][a-z]" "")
   ;;                                                                               (->Pattern 1 0 across 2 3 "[a-z][a-z]" "")
   ;;                                                                               (->Pattern 0 0 down 2 3 "[a-z][a-z]" "")

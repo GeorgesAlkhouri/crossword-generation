@@ -109,20 +109,25 @@
 (defmethod pick-strategy :random
   [data]
   (let [matches (match-words (:regex data) (:words data))]
-    (-> (repeatedly 10 #(rand-nth matches)) distinct)))     ;; TODO: delete word after choosing it.
+    (if (empty? matches)
+      nil
+      (-> (repeatedly 10 #(rand-nth matches)) distinct))))  ;; TODO: delete word after choosing it.
 
 (declare propagate-pattern)
 
 (defmethod pick-strategy :dynamic
   [data]
-  (let [random-pick (pick-strategy {:pick-strategy :random
-                                    :regex         (:regex data)
-                                    :words         (:words data)})
-        words (map #(let [p' (propagate-pattern most-constrained (:pattern data) (:patterns data) % (:wordlist data))
-                          freedom (reduce *' (map :freedom (:p p')))]
-                     {:w % :f freedom}) random-pick)
-        words' (filter #(> (:f %) 0) words)]
-    (map :w (reverse (sort-by :f words')))))
+  (if-let [random-pick (pick-strategy {:pick-strategy :random
+                                       :regex         (:regex data)
+                                       :words         (:words data)})]
+    (let [words (map #(let [p' (propagate-pattern most-constrained (:pattern data) (:patterns data) % (:wordlist data))
+                            freedom (reduce *' (map :freedom (:p p')))]
+                       {:w % :f freedom}) random-pick)
+          words' (filter #(> (:f %) 0) words)]
+      (if (empty? words')
+        nil
+        (map :w (reverse (sort-by :f words')))))
+    nil))
 
 (defmethod pick-strategy :prob
   [data]
@@ -269,10 +274,11 @@
 
 (defn benchmark-all
   []
-  (for [fill (list most-constrained ratio)
-        pick (list first-n random dynamic)
-        grid (list grid/grid-5x5 grid/grid-9x9 grid/grid-13x13 grid/grid-15x15)]
-    (str "F: " fill " P: " pick " G: " (count grid) " B: " (clojure.string/join ", " (benchmark-generation fill pick grid)))))
+  (doseq [fill (list most-constrained ratio)
+          pick (list first-n random dynamic)
+          grid (list grid/grid-5x5 grid/grid-9x9 grid/grid-13x13 grid/grid-15x15)]
+    (println (str "F: " fill " P: " pick " G: " (count grid)))
+    (println (clojure.string/join "\n" (benchmark-generation fill pick grid)))))
 
 (defn -main
   [& args]
